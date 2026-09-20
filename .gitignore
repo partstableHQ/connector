@@ -1,0 +1,15 @@
+# --- Go ---
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# --- Frontend (built artifacts are embedded at compile time, never committed) ---
+node_modules/
+frontend/dist/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+desktop.ini

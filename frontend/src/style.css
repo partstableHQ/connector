@@ -1,0 +1,94 @@
+/* PartsTable brand tokens (datasheet v2.0): primary #0055DD / #3B82F6, navy #0F172A.
+   Geist typography lands with the branding pass (FM-18); system stack until then. */
+
+:root {
+  --pt-primary: #0055dd;
+  --pt-primary-bright: #3b82f6;
+  --pt-navy: #0f172a;
+  --pt-surface: #ffffff;
+  --pt-surface-muted: #f1f5f9;
+  --pt-border: #e2e8f0;
+  --pt-text: #0f172a;
+  --pt-text-muted: #64748b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: var(--pt-text);
+  background: var(--pt-surface-muted);
+}
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: var(--pt-navy);
+  color: #fff;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.4rem;
+  background: var(--pt-primary);
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.brand-name {
+  font-weight: 600;
+}
+
+.brand-sub {
+  color: #93c5fd;
+  font-weight: 400;
+}
+
+.vintage {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+}
+
+.hero {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 5rem 1.5rem 0;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 2.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.lede {
+  font-size: 1.05rem;
+  color: var(--pt-text);
+  margin: 0 0 1rem;
+}
+
+.muted {
+  color: var(--pt-text-muted);
+  font-size: 0.9rem;
+}

@@ -1,0 +1,75 @@
+version: 2
+
+project_name: partstable-connector
+
+# Slice-1 release matrix: windows (CGO off, pure-Go webview2) + linux (CGO on,
+# built natively on the ubuntu runner with webkit2gtk dev packages).
+# Darwin binaries join at the release-engineering slice, together with
+# signing + notarization — an unsigned mac binary behind Gatekeeper would
+# poison the first impression.
+builds:
+  - id: connector-linux
+    main: ./cmd/partstable
+    binary: partstable
+    goos: [linux]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w
+      - -X github.com/partstableHQ/connector/internal/version.version={{.Version}}
+      - -X github.com/partstableHQ/connector/internal/version.commit={{.FullCommit}}
+
+  - id: connector-windows
+    main: ./cmd/partstable
+    binary: partstable
+    goos: [windows]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/partstableHQ/connector/internal/version.version={{.Version}}
+      - -X github.com/partstableHQ/connector/internal/version.commit={{.FullCommit}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+sboms:
+  - artifacts: archive
+
+# Keyless cosign (Fulcio/Rekor) over the checksums file. Requires cosign on
+# PATH + id-token: write — see .github/workflows/release.yml.
+signs:
+  - artifacts: checksum
+    cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - --yes
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  # Draft until the v0.1.0 release pass (signing, screenshots, announcement).
+  # The self-updater only sees published (non-draft) releases.
+  draft: true
