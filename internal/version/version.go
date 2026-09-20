@@ -32,17 +32,23 @@ func Commit() string { return load().commit }
 func load() versionInfo {
 	loadOnce.Do(func() {
 		loaded = versionInfo{version: "dev", commit: "unknown"}
-		info, ok := debug.ReadBuildInfo()
-		if !ok {
-			return
-		}
-		if v := info.Main.Version; v != "" && v != "(devel)" {
-			loaded.version = v
-		}
-		for _, s := range info.Settings {
-			if s.Key == "vcs.revision" && s.Value != "" {
-				loaded.commit = s.Value
+		if info, ok := debug.ReadBuildInfo(); ok {
+			if v := info.Main.Version; v != "" && v != "(devel)" {
+				loaded.version = v
 			}
+			for _, s := range info.Settings {
+				if s.Key == "vcs.revision" && s.Value != "" {
+					loaded.commit = s.Value
+				}
+			}
+		}
+		// goreleaser injects the vars above at link time; they win over
+		// whatever the build info carried.
+		if version != "" {
+			loaded.version = version
+		}
+		if commit != "" {
+			loaded.commit = commit
 		}
 	})
 	return loaded
