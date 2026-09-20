@@ -3,10 +3,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/partstableHQ/connector/internal/app"
+	"github.com/partstableHQ/connector/internal/doctor"
 	"github.com/partstableHQ/connector/internal/version"
 )
 
@@ -29,7 +31,9 @@ func main() {
 	switch args[0] {
 	case "version", "--version", "-v":
 		fmt.Printf("partstable %s (commit %s)\n", version.Version(), version.Commit())
-	case "serve", "doctor", "login":
+	case "doctor":
+		os.Exit(runDoctor())
+	case "serve", "login":
 		// Honest stubs: each lands in its own slice (see ROADMAP.md).
 		// Never pretend a feature exists before it does.
 		fmt.Fprintf(os.Stderr, "partstable %s: not built yet — see ROADMAP.md\n", args[0])
@@ -40,4 +44,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "partstable: unknown command %q\n\n%s", args[0], usage)
 		os.Exit(2)
 	}
+}
+
+// runDoctor diagnoses this installation (FM-16) and exits nonzero only on
+// hard failures — warnings mean "works, not yet set up".
+func runDoctor() int {
+	sum, err := doctor.Run(context.Background(), doctor.Options{}, os.Stdout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "partstable doctor: %v\n", err)
+		return 1
+	}
+	if sum.Count(doctor.StatusFail) > 0 {
+		return 1
+	}
+	return 0
 }

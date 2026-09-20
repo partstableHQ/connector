@@ -8,6 +8,16 @@ release time; this section is the format template.
 
 ### Added
 
+- Local database (FM-4): embedded pure-Go SQLite (`modernc.org/sqlite`) with
+  WAL and forward-only goose migrations embedded in the binary; migrations
+  run eagerly at app startup.
+- Compendium snapshots (FM-12): signed, gzipped SQLite snapshot artifact
+  loaded with checksum verification, SQLite integrity check, atomic replace
+  and `.bak` rollback; format contract published at
+  `internal/compendium/FORMAT.md` for the server-side exporter.
+- `partstable doctor` (FM-16): diagnoses data dir, app database (integrity +
+  migration state), and compendium (schema, vintage, counts); roadmap
+  subsystems (update channel, keychain) report as skipped, never red.
 - Project scaffold: Wails v3 desktop shell (Windows/linux targets), embedded
   frontend, version metadata, CI (lint + test on 3 OSes), goreleaser release
   pipeline (archives, checksums, SBOM, cosign).
