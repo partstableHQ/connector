@@ -16,8 +16,10 @@ import (
 	"github.com/partstableHQ/connector/internal/api"
 	"github.com/partstableHQ/connector/internal/app"
 	"github.com/partstableHQ/connector/internal/auth"
+	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/doctor"
 	"github.com/partstableHQ/connector/internal/lookup"
+	"github.com/partstableHQ/connector/internal/paths"
 	"github.com/partstableHQ/connector/internal/update"
 	"github.com/partstableHQ/connector/internal/version"
 )
@@ -33,6 +35,8 @@ Usage:
                       paste an API key instead (headless machines)
   partstable logout   remove the stored key from this machine
   partstable update   check for updates and apply them (restart to finish)
+  partstable install-compendium <file.bin>
+                      install a compendium snapshot from a .bin archive
   partstable version  print version information
 `
 
@@ -56,6 +60,12 @@ func main() {
 		os.Exit(runLogout())
 	case "update":
 		os.Exit(runUpdate())
+	case "install-compendium":
+		archive := ""
+		if len(args) > 1 {
+			archive = args[1]
+		}
+		os.Exit(runInstallCompendium(archive))
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:
@@ -160,6 +170,33 @@ func runLogout() int {
 		return 1
 	}
 	fmt.Println("Signed out — the key was removed from the OS keychain.")
+	return 0
+}
+
+// runInstallCompendium installs a snapshot archive as this machine's
+// compendium — the recovery and beta path for getting data onto a machine
+// without a release update.
+func runInstallCompendium(archive string) int {
+	if archive == "" {
+		fmt.Fprintln(os.Stderr, "usage: partstable install-compendium <compendium-<version>.bin>")
+		return 2
+	}
+	target, err := paths.CompendiumDB()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "partstable install-compendium:", err)
+		return 1
+	}
+	info, err := compendium.Load(context.Background(), archive, target, "")
+	if errors.Is(err, compendium.ErrSchemaTooNew) {
+		fmt.Fprintln(os.Stderr, "partstable install-compendium:", err)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "partstable install-compendium: %v (nothing was changed)\n", err)
+		return 1
+	}
+	fmt.Printf("Compendium installed: schema v%d · rev %s · %d parts · %d xrefs · %d holders.\n",
+		info.Schema, info.Vintage.Format("2006-01-02"), info.PartCount, info.XrefCount, info.HolderCount)
 	return 0
 }
 

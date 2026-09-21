@@ -13,3 +13,7 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local beta builds (never committed)
+/beta/
+/Desktop-beta/
