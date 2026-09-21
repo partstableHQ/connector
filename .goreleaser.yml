@@ -45,6 +45,20 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Headless-API container (partstable serve) published to ghcr.io. The
+# release workflow logs in with GITHUB_TOKEN (packages: write) first.
+dockers:
+  - image_templates:
+      - ghcr.io/partstablehq/connector:{{ .Version }}
+      - ghcr.io/partstablehq/connector:latest
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/partstableHQ/connector"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
 sboms:
   - artifacts: archive
 

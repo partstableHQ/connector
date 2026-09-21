@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  packages: write # ghcr.io image push
   id-token: write # cosign keyless signing
   attestations: write
 
@@ -34,6 +35,12 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
           curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
           chmod +x /usr/local/bin/cosign
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build frontend (tsc + vite)
         working-directory: frontend
         run: |
@@ -46,3 +53,46 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-macos:
+    # Darwin binaries must be built natively (CGO + Apple toolchain) and
+    # uploaded to the draft release the ubuntu job created.
+    runs-on: macos-latest
+    needs: goreleaser
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend (tsc + vite)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Install cosign (checksum signing)
+        run: brew install cosign
+      # Signing/notarization (Developer ID Application certificate +
+      # APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID secrets) activates when those
+      # secrets exist — see RELEASE.md. Until then the darwin archives ship
+      # unsigned and the release notes must say so.
+      - name: Build and upload darwin archives
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release -f .goreleaser-darwin.yml --clean --skip=validate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sign darwin checksums (keyless)
+        env:
+          COSIGN_YES: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cosign sign-blob --output-signature checksums-darwin.txt.sig --output-certificate checksums-darwin.txt.pem checksums-darwin.txt && gh release upload "$GITHUB_REF_NAME" checksums-darwin.txt.sig checksums-darwin.txt.pem --clobber
+        working-directory: dist

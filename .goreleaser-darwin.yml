@@ -1,0 +1,34 @@
+# Darwin-only release configuration, run on a macOS runner by the
+# release-macos job: builds the GUI binaries natively (they need CGO and
+# Apple's toolchain) and uploads the archives to the draft release the
+# ubuntu job created. Signing/notarization activates when the Apple
+# Developer secrets exist — see RELEASE.md.
+version: 2
+
+project_name: partstable-connector
+
+builds:
+  - id: connector-darwin
+    main: ./cmd/partstable
+    binary: partstable
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w
+      - -X github.com/partstableHQ/connector/internal/version.version={{.Version}}
+      - -X github.com/partstableHQ/connector/internal/version.commit={{.FullCommit}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums-darwin.txt"
+
+release:
+  draft: true

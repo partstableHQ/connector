@@ -8,6 +8,11 @@ release time; this section is the format template.
 
 ### Added
 
+- Release pipeline (FM-20, slice 8): macOS build job (native CGO, uploads
+  darwin archives to the draft release, checksums cosign-signed), Docker
+  image of the headless API published to ghcr.io (goreleaser dockers +
+  Dockerfile), winget manifest templates, and the release runbook
+  (RELEASE.md) with the signing go-live checklist.
 - Branding + offline pass (FM-10, FM-17, FM-18): Geist Sans/Mono bundled
   locally (offline-safe, SIL OFL), PartsTable brand tokens across the UI,
   the single quiet "There's more — partstable.com" footer link opening in
