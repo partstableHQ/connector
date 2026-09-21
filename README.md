@@ -29,18 +29,13 @@ Measured 2026-09-20 and climbing nightly: **187,147 calibrated parts · 312,913
 cross-references · 3,777 machine models across 36 brands.**
 
 ```bash
-$ partstable lookup 02CL197
+$ partstable lookup 95Y4812
 
-  02CL197 — Dell PowerEdge R620 riser card
+  95Y4812 — Lenovo 64GB (1x64GB) 4Rx4 PC4-17000P-L DDR4-2133 LRDIMM
   ├─ CROSS-REFERENCES
-  │   ├─ 9TMRF   equivalent  [OEM ★certified]
-  │   └─ GJW8F   alternate   [broker-verified]
-  ├─ FITS
-  │   └─ Dell PowerEdge R620
-  ├─ WHO HOLDS IT
-  │   └─ 4 vendors · 78 units · best: new pull ×32 · seen 2h ago
+  │   └─ 95Y4814    compatible alternate  [every claim carries its source]
   └─ SOURCES: every line above carries its citation.
-       OEM               from the manufacturer's own part data
+       OEM/vendor         from the manufacturer's own part data
        GOV REGISTRY      from official part registries
        BROKER-VERIFIED   confirmed by working brokers in the trade
        PARTNER           live stock from a connected company's ERP
@@ -61,10 +56,10 @@ winget install PartsTable.Connector      # Windows
 partstable login
 
 # 3 · Look up — free, from minute one, nothing to connect
-partstable lookup 02CL197
+partstable lookup 95Y4812
 
-# 4 · What does this part fit?
-partstable fits 9TMRF
+# 4 · What does this part fit? — every edge carries its source and tier
+partstable fits 95Y4812
 
 # 5 · Build sheet for a machine — complete parts list, cited, EOL clock
 partstable buildsheet hpe dl380-gen10
