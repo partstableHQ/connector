@@ -50,13 +50,24 @@ Releases are created **draft** today. Flip `draft: false` in both
    `w/Partstable/Partstable.Connector`. One-time; later versions flow
    through the same PR process or the winget automation.
 
-## Pipeline proof (2026-09-21)
+## Pipeline proof (2026-09-21, tag v0.0.0-dev.3)
 
-The full pipeline was validated with a throwaway tag `v0.0.0-dev.1`: both
-jobs ran green, the draft release carried every asset (windows/linux
-archives + checksums + SBOMs + cosign signature + darwin archives +
-ghcr image), and the draft + tag were deleted afterwards. Re-run the same
-way after any pipeline change, before a real release.
+The full pipeline was validated three times on throwaway tags; the first
+two runs caught real bugs (kept out of a real release exactly as designed):
+
+1. cosign v3 changed `sign-blob`'s bundle format and broke goreleaser's
+   classic args → **cosign is pinned to v2.4.1** on both jobs.
+2. goreleaser cannot find a **draft** release by tag, so the mac job
+   minted a second untagged draft → the mac job now only builds
+   (`--skip=publish,validate,sign`) and uploads with
+   `gh release upload` against the ubuntu job's draft.
+
+Run 3 produced a single draft with the complete matrix: windows zip + SBOM,
+linux tar.gz + SBOM, darwin amd64+arm64 tar.gz, checksums.txt +
+cosign signature/certificate, checksums-darwin.txt + signature/certificate,
+and the ghcr.io image (pushed with digest for both `:version` and
+`:latest`). Draft and tag were deleted afterwards. Re-run the same way
+after any pipeline change, before a real release.
 
 ## Known gaps (honest)
 
