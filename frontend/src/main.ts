@@ -7,6 +7,14 @@ import {
   type SortingState,
   type VisibilityState,
 } from '@tanstack/table-core';
+// Geist typography (FM-18), bundled locally — lookups work offline and so
+// do the fonts. SIL OFL license, ships with the app.
+import '@fontsource/geist-sans/400.css';
+import '@fontsource/geist-sans/500.css';
+import '@fontsource/geist-sans/600.css';
+import '@fontsource/geist-sans/700.css';
+import '@fontsource/geist-mono/400.css';
+import '@fontsource/geist-mono/500.css';
 import './style.css';
 
 // The localhost API (FM-15): the UI speaks the same verbs as any local
@@ -186,6 +194,10 @@ app.innerHTML = `
           </span>
         </label>
       </div>
+      <p class="more-link">
+        There's more — the paid end-to-end system at
+        <a href="https://partstable.com" id="more-link">partstable.com</a>
+      </p>
     </section>
   </main>
 `;
@@ -763,6 +775,22 @@ settingsSignOut.addEventListener('click', () => {
       refreshSettings();
     } catch {
       /* status refresh below will show the failure */
+    }
+  })();
+});
+
+// The single "There's more" link (FM-17): opens in the system browser,
+// never inside the app window.
+const moreLink = document.querySelector<HTMLAnchorElement>('#more-link')!;
+moreLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  void (async () => {
+    try {
+      const r = await fetch(`${API_BASE}/more`, { method: 'POST' });
+      const body = (await r.json()) as { opened: boolean; url: string };
+      if (!body.opened) window.open(body.url, '_blank');
+    } catch {
+      window.open('https://partstable.com', '_blank');
     }
   })();
 });

@@ -8,6 +8,11 @@ release time; this section is the format template.
 
 ### Added
 
+- Branding + offline pass (FM-10, FM-17, FM-18): Geist Sans/Mono bundled
+  locally (offline-safe, SIL OFL), PartsTable brand tokens across the UI,
+  the single quiet "There's more — partstable.com" footer link opening in
+  the system browser, and an offline verification of every data flow
+  (lookup, paste, export, vintage) with all outbound endpoints dead.
 - Self-updates + anonymous telemetry (FM-11, FM-13): update checks against
   GitHub Releases (partstableHQ/connector) with in-place binary swap
   (previous version kept as `.old` for rollback, restart to finish); the

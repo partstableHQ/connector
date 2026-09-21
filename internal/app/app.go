@@ -75,6 +75,11 @@ func startLocalAPI() func() {
 	authManager := auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore())
 	updateManager := update.NewManager(version.Version(), OpenAppDB())
 	srv := api.New(lookup.New(OpenCompendium()), version.Version(), port, authManager, updateManager)
+	// Outbound links open in the system browser, never inside the app
+	// window. Resolved at click time, when the Wails app exists.
+	srv.SetURLOpener(func(u string) error {
+		return application.Get().Browser.OpenURL(u)
+	})
 	l, err := srv.Listen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "partstable: local API could not bind %s (%v) — the UI will show no data; free the port or set %s=<port>\n",

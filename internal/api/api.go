@@ -49,15 +49,26 @@ func Port() (int, error) {
 	return n, nil
 }
 
+// MoreURL is the single outbound link the free app carries (FM-17): one
+// quiet footer entry — no upsell screens, modals, or feature-gated
+// buttons, and the app never nags.
+const MoreURL = "https://partstable.com"
+
 // Server is the localhost API.
 type Server struct {
 	svc     *lookup.Service
 	authm   *auth.Manager
 	updatem *update.Manager
+	openURL func(string) error
 	version string
 	addr    string
 	http    *http.Server
 }
+
+// SetURLOpener wires the system-browser opener for outbound links (the
+// desktop app provides the WebView's external-browser handler; headless
+// serve leaves it unset and /more returns the URL instead).
+func (s *Server) SetURLOpener(fn func(string) error) { s.openURL = fn }
 
 // New builds the API server. authm and updatem may be nil (their verbs
 // then report unavailable). It does not bind; call Listen + Serve.
@@ -82,6 +93,7 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("POST /update/apply", s.handleUpdateApply)
 	mux.HandleFunc("GET /settings", s.handleGetSettings)
 	mux.HandleFunc("POST /settings", s.handlePostSettings)
+	mux.HandleFunc("POST /more", s.handleMore)
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -386,6 +398,16 @@ func (s *Server) handlePasteExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="partstable-list.xlsx"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(xlsx)
+}
+
+func (s *Server) handleMore(w http.ResponseWriter, _ *http.Request) {
+	out := map[string]any{"url": MoreURL, "opened": false}
+	if s.openURL != nil {
+		if err := s.openURL(MoreURL); err == nil {
+			out["opened"] = true
+		}
+	}
+	respond(w, http.StatusOK, out)
 }
 
 func respond(w http.ResponseWriter, status int, payload any) {

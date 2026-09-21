@@ -18,7 +18,7 @@
 
 body {
   margin: 0;
-  font-family: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Geist Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: var(--pt-text);
   background: var(--pt-surface-muted);
 }
@@ -482,6 +482,23 @@ button.secondary {
 button.secondary:hover {
   border-color: var(--pt-primary-bright);
   color: var(--pt-primary);
+}
+
+.more-link {
+  text-align: center;
+  color: var(--pt-text-muted);
+  font-size: 0.85rem;
+  margin-top: 2rem;
+}
+
+.more-link a {
+  color: var(--pt-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.more-link a:hover {
+  text-decoration: underline;
 }
 
 .hidden {
