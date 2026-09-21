@@ -24,6 +24,13 @@ database, so every answer comes from your own machine — instantly, offline.
 - **Your machine, your queries** — no part number you look up ever leaves
   your computer.
 
+## Local API
+
+The app serves its own lookup API on `127.0.0.1:7878` (`/health`, `/lookup`,
+`/xref`, `/bulk`) — the same verbs the desktop UI uses. It binds to the
+loopback interface only and never logs a query. Scripting documentation is
+coming with v1.1.
+
 ## Install
 
 The first public release (v0.1.0) will be one command on Windows:

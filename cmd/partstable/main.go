@@ -4,11 +4,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
 
+	"github.com/partstableHQ/connector/internal/api"
 	"github.com/partstableHQ/connector/internal/app"
 	"github.com/partstableHQ/connector/internal/doctor"
+	"github.com/partstableHQ/connector/internal/lookup"
 	"github.com/partstableHQ/connector/internal/version"
 )
 
@@ -33,10 +38,11 @@ func main() {
 		fmt.Printf("partstable %s (commit %s)\n", version.Version(), version.Commit())
 	case "doctor":
 		os.Exit(runDoctor())
-	case "serve", "login":
-		// Honest stubs: each lands in its own slice (see ROADMAP.md).
-		// Never pretend a feature exists before it does.
-		fmt.Fprintf(os.Stderr, "partstable %s: not built yet — see ROADMAP.md\n", args[0])
+	case "serve":
+		os.Exit(runServe())
+	case "login":
+		// Honest stub: lands with the auth slice (see ROADMAP.md).
+		fmt.Fprintln(os.Stderr, "partstable login: not built yet — see ROADMAP.md")
 		os.Exit(2)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
@@ -56,6 +62,40 @@ func runDoctor() int {
 	}
 	if sum.Count(doctor.StatusFail) > 0 {
 		return 1
+	}
+	return 0
+}
+
+// runServe exposes the local API without a window: the scripting and
+// Docker path (FM-15). Loopback only; queries are never logged.
+func runServe() int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	port, err := api.Port()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "partstable serve:", err)
+		return 1
+	}
+	srv := api.New(lookup.New(app.OpenCompendium()), version.Version(), port)
+	l, err := srv.Listen()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "partstable serve: cannot bind %s (%v) — free the port or set %s=<port>\n",
+			srv.Addr(), err, api.EnvPort)
+		return 1
+	}
+	fmt.Printf("partstable serve: http://%s — loopback only, no query logging; ctrl+c to stop\n", srv.Addr())
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(l) }()
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintln(os.Stderr, "partstable serve:", err)
+			return 1
+		}
+	case <-ctx.Done():
+		_ = srv.Close()
 	}
 	return 0
 }

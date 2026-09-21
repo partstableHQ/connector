@@ -10,33 +10,81 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 
-	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver (pure Go)
 )
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// MigrationCount is the number of embedded migrations; the applied version
-// must always equal this after Migrate.
-var MigrationCount = countMigrations()
+// migration is one embedded, forward-only schema step. The file name's
+// numeric prefix is its version: 001_init.sql is version 1.
+type migration struct {
+	version int
+	name    string
+	sql     string
+}
 
-func countMigrations() int {
-	entries, err := migrationsFS.ReadDir("migrations")
+var (
+	loadOnce sync.Once
+	loaded   []migration
+	loadErr  error
+)
+
+func all() ([]migration, error) {
+	loadOnce.Do(func() {
+		loaded, loadErr = loadMigrations()
+	})
+	return loaded, loadErr
+}
+
+// loadMigrations parses migrations/*.sql in version order. Duplicate
+// versions are a build-time data error.
+func loadMigrations() ([]migration, error) {
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
-		return 0
+		return nil, fmt.Errorf("store: read embedded migrations: %w", err)
 	}
-	n := 0
+	var ms []migration
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			n++
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		prefix, rest, _ := strings.Cut(e.Name(), "_")
+		v, err := strconv.Atoi(prefix)
+		if err != nil {
+			return nil, fmt.Errorf("store: migration %s: numeric version prefix required", e.Name())
+		}
+		if v <= 0 {
+			return nil, fmt.Errorf("store: migration %s: version must be positive", e.Name())
+		}
+		body, err := fs.ReadFile(migrationsFS, "migrations/"+e.Name())
+		if err != nil {
+			return nil, fmt.Errorf("store: read %s: %w", e.Name(), err)
+		}
+		ms = append(ms, migration{version: v, name: rest, sql: string(body)})
+	}
+	slices.SortFunc(ms, func(a, b migration) int { return a.version - b.version })
+	for i := 1; i < len(ms); i++ {
+		if ms[i].version == ms[i-1].version {
+			return nil, fmt.Errorf("store: duplicate migration version %d", ms[i].version)
 		}
 	}
-	return n
+	return ms, nil
+}
+
+// MigrationCount is the number of embedded migrations; after Migrate the
+// highest applied version equals this count (versions are 1..N).
+func MigrationCount() int {
+	ms, _ := all()
+	return len(ms)
 }
 
 // dsn builds a modernc.org/sqlite DSN with the pragmas that must hold on
@@ -51,8 +99,8 @@ func dsn(path string) string {
 }
 
 // Open opens (creating if necessary) the app database. Callers on the
-// CLI path should follow with Migrate; the GUI runs both eagerly at
-// startup (BUILD-GUIDE §1: run migrations eagerly).
+// startup path should follow with Migrate — migrations run eagerly at
+// every app start (BUILD-GUIDE §1).
 func Open(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
@@ -65,27 +113,97 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Migrate applies all embedded migrations. Forward-only: there is no
-// downgrade path by doctrine — client databases are never down-migrated,
-// releases only move forward (with a backup, see compendium rollback).
+// migrationsTable tracks applied versions. One row per migration, appended
+// in order — nothing here is ever deleted or rewritten.
+const migrationsTable = `
+CREATE TABLE IF NOT EXISTS schema_migrations (
+	version    INTEGER PRIMARY KEY,
+	name       TEXT NOT NULL,
+	applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+)`
+
+// Migrate applies all embedded migrations that the database has not yet
+// applied, each inside its own transaction. Forward-only by doctrine:
+// there is no downgrade path — client databases are never down-migrated,
+// releases only move forward (with backups, see compendium rollback).
+//
+// A database written by a NEWER app (versions above this build's embedded
+// set) is refused with an actionable error rather than touched.
 func Migrate(ctx context.Context, db *sql.DB) error {
-	// Explicit dialect: the legacy goose API's driver-name auto-detection
-	// misfires for the modernc "sqlite" driver on a fresh database.
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return fmt.Errorf("store: dialect: %w", err)
+	ms, err := all()
+	if err != nil {
+		return err
 	}
-	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(goose.NopLogger())
-	defer goose.SetBaseFS(nil)
-	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
-		return fmt.Errorf("store: migrate: %w", err)
+	if _, err := db.ExecContext(ctx, migrationsTable); err != nil {
+		return fmt.Errorf("store: migrations table: %w", err)
+	}
+
+	applied, err := appliedVersions(ctx, db)
+	if err != nil {
+		return err
+	}
+	if n := len(applied); n > len(ms) {
+		return fmt.Errorf("store: database schema v%d is newer than this app supports (v%d) — update the app",
+			applied[len(ms)], len(ms))
+	}
+	for i, m := range ms {
+		if i < len(applied) {
+			if applied[i] != m.version {
+				return fmt.Errorf("store: migration history diverged at position %d (applied v%d, embedded v%d)",
+					i, applied[i], m.version)
+			}
+			continue
+		}
+		if err := apply(ctx, db, m); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// Version reports the applied migration version (-1 when none applied).
+func appliedVersions(ctx context.Context, db *sql.DB) ([]int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		return nil, fmt.Errorf("store: read migration state: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []int
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("store: read migration state: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func apply(ctx context.Context, db *sql.DB, m migration) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: begin migration %d: %w", m.version, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, m.sql); err != nil {
+		return fmt.Errorf("store: apply migration %d (%s): %w", m.version, m.name, err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO schema_migrations (version, name) VALUES (?, ?)`, m.version, m.name); err != nil {
+		return fmt.Errorf("store: record migration %d: %w", m.version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit migration %d: %w", m.version, err)
+	}
+	return nil
+}
+
+// Version reports the highest applied migration version (0 when none).
 func Version(db *sql.DB) (int64, error) {
-	return goose.GetDBVersion(db)
+	var v int64
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("store: read schema version: %w", err)
+	}
+	return v, nil
 }
 
 // Integrity runs SQLite's integrity_check and returns the result string

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -29,8 +30,8 @@ func TestOpenAndMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
-	if v != int64(MigrationCount) {
-		t.Fatalf("applied version %d, want %d", v, MigrationCount)
+	if v != int64(MigrationCount()) {
+		t.Fatalf("applied version %d, want %d", v, MigrationCount())
 	}
 
 	// Settings is the app's key-value surface; prove it actually works.
@@ -66,5 +67,37 @@ func TestWALJournalMode(t *testing.T) {
 	}
 	if mode != "wal" {
 		t.Fatalf("journal_mode = %q, want wal", mode)
+	}
+}
+
+// A database written by a newer app must be refused, never touched — the
+// forward-only doctrine cuts both ways: an old app cannot guess at a
+// newer schema.
+func TestMigrateRefusesDatabaseFromNewerApp(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "app.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Bring the DB to the current schema the normal way, then simulate a
+	// newer app having applied a migration this build does not know.
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("initial migrate: %v", err)
+	}
+	future := MigrationCount() + 5
+	if _, err := db.Exec(`INSERT INTO schema_migrations (version, name) VALUES (?, 'future')`, future); err != nil {
+		t.Fatalf("seed future row: %v", err)
+	}
+
+	err = Migrate(ctx, db)
+	if err == nil {
+		t.Fatal("migrate of a newer database must fail")
+	}
+	if !strings.Contains(err.Error(), "update the app") {
+		t.Fatalf("error must be actionable, got: %v", err)
 	}
 }

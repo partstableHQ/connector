@@ -23,12 +23,6 @@ body {
   background: var(--pt-surface-muted);
 }
 
-.shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
 .topbar {
   display: flex;
   align-items: center;
@@ -70,25 +64,174 @@ body {
   color: #cbd5e1;
 }
 
-.hero {
-  max-width: 42rem;
+.content {
+  max-width: 52rem;
   margin: 0 auto;
-  padding: 5rem 1.5rem 0;
-  text-align: center;
+  padding: 2.5rem 1.5rem 3rem;
 }
 
-.hero h1 {
-  font-size: 2.1rem;
-  margin: 0 0 0.75rem;
+.search {
+  display: flex;
+  gap: 0.6rem;
 }
 
-.lede {
-  font-size: 1.05rem;
-  color: var(--pt-text);
-  margin: 0 0 1rem;
+.search input {
+  flex: 1;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid var(--pt-border);
+  border-radius: 0.45rem;
+  background: var(--pt-surface);
+}
+
+.search input:focus {
+  outline: 2px solid var(--pt-primary-bright);
+  outline-offset: 0;
+  border-color: var(--pt-primary-bright);
+}
+
+.search button {
+  padding: 0.7rem 1.2rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--pt-primary);
+  border: none;
+  border-radius: 0.45rem;
+  cursor: pointer;
+}
+
+.search button:hover {
+  background: var(--pt-primary-bright);
+}
+
+.hint {
+  color: var(--pt-text-muted);
+  font-size: 0.8rem;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.card {
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
+  border-radius: 0.6rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.category {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pt-text-muted);
+  border: 1px solid var(--pt-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+}
+
+.match-note {
+  font-size: 0.8rem;
+  color: var(--pt-primary);
+}
+
+.desc {
+  margin: 0.6rem 0 1rem;
+}
+
+.card h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pt-text-muted);
+  margin: 1.25rem 0 0.5rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--pt-text-muted);
+  border-bottom: 1px solid var(--pt-border);
+  padding: 0.4rem 0.6rem 0.4rem 0;
+}
+
+td {
+  border-bottom: 1px solid var(--pt-surface-muted);
+  padding: 0.45rem 0.6rem 0.45rem 0;
+  vertical-align: baseline;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
 .muted {
   color: var(--pt-text-muted);
-  font-size: 0.9rem;
+}
+
+.banner {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: var(--pt-navy);
+  border-radius: 0.6rem;
+  padding: 1rem 1.25rem;
+  font-size: 0.95rem;
+}
+
+/* Citation chips (FM-6): one visual language, hover shows the source detail. */
+.chip {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.chip-oem {
+  background: var(--pt-navy);
+  color: #fff;
+}
+
+.chip-government_registry {
+  background: #0f766e;
+  color: #fff;
+}
+
+.chip-broker_verified {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.chip-partner {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.chip-certified {
+  background: #fde68a;
+  color: #78350f;
 }

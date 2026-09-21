@@ -8,7 +8,7 @@ completion claims without verification.
 |---|---|---|---|
 | 1 | Skeleton: repo, Wails v3 shell, CI (3 OSes), goreleaser dry-run | FM-19, FM-20 groundwork | **shipped** (2026-09-20) |
 | 2 | Store: embedded SQLite (modernc) + goose migrations + snapshot loader/verifier + `doctor` | FM-4, FM-12, FM-16 | **shipped** (2026-09-20) — snapshot format contract: `internal/compendium/FORMAT.md`; migrations live at `internal/store/migrations/` (Go embed cannot cross package dirs) |
-| 3 | Lookup UI + local API (`/lookup` `/xref` `/bulk`, 127.0.0.1 only) | FM-5, FM-6, FM-15 | planned |
+| 3 | Lookup UI + local API (`/lookup` `/xref` `/bulk`, 127.0.0.1 only) | FM-5, FM-6, FM-15 | **shipped** (2026-09-20) — verified end-to-end against a seeded compendium; public API docs deferred to v1.1 per the cut line |
 | 4 | Paste-a-list parser + results table + Excel export | FM-7, FM-8, FM-9 | planned |
 | 5 | Auth: browser OAuth+PKCE pairing, OS keychain storage | FM-3 | planned |
 | 6 | Self-update + anonymous update-check ping + Settings | FM-11, FM-13 | planned |

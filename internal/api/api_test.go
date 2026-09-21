@@ -1,0 +1,189 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/partstableHQ/connector/internal/compendium"
+	"github.com/partstableHQ/connector/internal/lookup"
+)
+
+func testServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	db, err := compendium.Create(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatalf("create compendium: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, stmt := range []string{
+		`INSERT INTO meta (key, value) VALUES ('compendium_schema','1'),
+		 ('generated_at','2026-09-20T12:00:00Z'), ('source_rev','tds-test'), ('generator','test/1')`,
+		`INSERT INTO parts (pn, display_pn, description, category)
+		 VALUES ('02CL197', '02cl197', 'LP ECC UDIMM 32GB DDR4-3200', 'memory')`,
+		`INSERT INTO part_aliases (alias, pn) VALUES ('2CL197', '02CL197')`,
+		`INSERT INTO xrefs (from_pn, to_pn, kind, source, source_detail)
+		 VALUES ('02CL197', '32GBDDR43200ECC', 'substitute', 'broker_verified', 'broker lot #812')`,
+		`INSERT INTO holders (pn, holder, qty, condition, last_seen, source, source_detail)
+		 VALUES ('02CL197', 'Test Broker NL', 4, 'refurb', '2026-09-01', 'partner', 'feed sync')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	ts := httptest.NewServer(New(lookup.New(db), "test-version", DefaultPort).Handler())
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func getJSON(t *testing.T, url string) (int, map[string]any) {
+	t.Helper()
+	r, err := http.Get(url) // #nosec G107 -- httptest URL built by the test
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer func() { _ = r.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return r.StatusCode, body
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	ts := testServer(t)
+	code, body := getJSON(t, ts.URL+"/health")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if body["app_version"] != "test-version" {
+		t.Fatalf("app_version = %v", body["app_version"])
+	}
+	comp, ok := body["compendium"].(map[string]any)
+	if !ok || comp["schema"].(float64) != 1 || comp["part_count"].(float64) != 1 {
+		t.Fatalf("compendium health wrong: %v", body["compendium"])
+	}
+}
+
+func TestLookupEndpoint(t *testing.T) {
+	ts := testServer(t)
+
+	code, body := getJSON(t, ts.URL+"/lookup?pn=2c-l197")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if body["matched_by"] != "alias" {
+		t.Fatalf("matched_by = %v", body["matched_by"])
+	}
+	if body["query"] != "2c-l197" || body["normalized"] != "2CL197" {
+		t.Fatalf("verbatim/normalized wrong: %v / %v", body["query"], body["normalized"])
+	}
+	part := body["part"].(map[string]any)
+	if part["pn"] != "02CL197" {
+		t.Fatalf("part pn = %v", part["pn"])
+	}
+	if len(part["xrefs"].([]any)) != 1 || len(part["holders"].([]any)) != 1 {
+		t.Fatalf("cited facts missing: %v", part)
+	}
+
+	code, body = getJSON(t, ts.URL+"/lookup?pn=NOPE123")
+	if code != http.StatusOK || body["matched_by"] != "" || body["part"] != nil {
+		t.Fatalf("not-found must be a 200 empty answer: %d %v", code, body)
+	}
+
+	code, _ = getJSON(t, ts.URL+"/lookup")
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing pn must 400, got %d", code)
+	}
+}
+
+func TestXrefEndpoint(t *testing.T) {
+	ts := testServer(t)
+	code, body := getJSON(t, ts.URL+"/xref?pn=02CL197")
+	if code != http.StatusOK || body["matched_by"] != "exact" {
+		t.Fatalf("xref endpoint wrong: %d %v", code, body)
+	}
+	if len(body["part"].(map[string]any)["xrefs"].([]any)) != 1 {
+		t.Fatalf("xrefs missing: %v", body)
+	}
+}
+
+func TestBulkEndpoint(t *testing.T) {
+	ts := testServer(t)
+
+	req := bulkRequest{PNs: []string{"02CL197", "2CL197", "MISSING1"}}
+	b, _ := json.Marshal(req)
+	resp, err := http.Post(ts.URL+"/bulk", "application/json", bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	results := body["results"].([]any)
+	if len(results) != 3 {
+		t.Fatalf("results = %d, want 3", len(results))
+	}
+	if results[0].(map[string]any)["matched_by"] != "exact" {
+		t.Fatalf("first result wrong: %v", results[0])
+	}
+	if results[2].(map[string]any)["part"] != nil {
+		t.Fatalf("missing part must be nil: %v", results[2])
+	}
+
+	// Over the cap: refused, never silently truncated.
+	huge := bulkRequest{PNs: make([]string, MaxBulkParts+1)}
+	hugeBody, _ := json.Marshal(huge)
+	resp, err = http.Post(ts.URL+"/bulk", "application/json", bytes.NewReader(hugeBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("over-cap bulk must 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestCORSPreflight(t *testing.T) {
+	ts := testServer(t)
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/lookup", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight must 204, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got == "" {
+		t.Fatal("CORS origin header missing — the desktop webview could not call the API")
+	}
+}
+
+func TestPortResolution(t *testing.T) {
+	t.Setenv(EnvPort, "")
+	p, err := Port()
+	if err != nil || p != DefaultPort {
+		t.Fatalf("default port = %d, %v", p, err)
+	}
+	t.Setenv(EnvPort, "8099")
+	p, err = Port()
+	if err != nil || p != 8099 {
+		t.Fatalf("override port = %d, %v", p, err)
+	}
+	t.Setenv(EnvPort, "not-a-port")
+	if _, err := Port(); err == nil || !strings.Contains(err.Error(), "not a valid port") {
+		t.Fatalf("invalid port must error clearly, got %v", err)
+	}
+	_ = os.Unsetenv(EnvPort)
+}

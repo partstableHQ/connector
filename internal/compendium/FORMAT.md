@@ -46,7 +46,8 @@ contract violation and the loader must reject the snapshot.
 - Export ONLY through the canonical part read model — no private table reads.
 - `pn` is the normalized identity (uppercase, separators stripped);
   `display_pn` preserves the source's verbatim form. Leading-zero variants
-  ride in `part_aliases`, never conflated into one identity.
+  ride in `part_aliases`, never conflated into one identity; `alias`
+  values are normalized with the same rule as `pn`.
 - Quantities, conditions and last-seen dates in `holders` must be stamped
   with their own `source` + `source_detail` for hover citations.
 - Vintage (`generated_at`) is the moment of export, not of release.

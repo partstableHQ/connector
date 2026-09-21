@@ -8,9 +8,18 @@ release time; this section is the format template.
 
 ### Added
 
+- Lookup UI + local API (FM-5, FM-6, FM-15): single-PN lookup with
+  normalization displayed and verbatim queries preserved, citation chips on
+  every fact (hover for the full source detail), and the loopback REST API
+  (`/health`, `/lookup`, `/xref`, `/bulk` on 127.0.0.1:7878) speaking the
+  same verbs as the UI — with zero query logging.
+- `partstable serve`: the API without a window — the scripting and
+  headless/Docker path.
+- `cmd/mkcompendium`: developer tool that builds a sample snapshot artifact
+  and seeds a data directory for end-to-end testing.
 - Local database (FM-4): embedded pure-Go SQLite (`modernc.org/sqlite`) with
-  WAL and forward-only goose migrations embedded in the binary; migrations
-  run eagerly at app startup.
+  WAL and forward-only embedded migrations; migrations run eagerly at app
+  startup.
 - Compendium snapshots (FM-12): signed, gzipped SQLite snapshot artifact
   loaded with checksum verification, SQLite integrity check, atomic replace
   and `.bak` rollback; format contract published at
@@ -21,3 +30,10 @@ release time; this section is the format template.
 - Project scaffold: Wails v3 desktop shell (Windows/linux targets), embedded
   frontend, version metadata, CI (lint + test on 3 OSes), goreleaser release
   pipeline (archives, checksums, SBOM, cosign).
+
+### Changed
+
+- Migrations are applied by a small in-house forward-only runner
+  (`internal/store`); the third-party goose dependency was removed by CEO
+  directive with identical guarantees (embedded SQL, ordered versions,
+  per-migration transactions, newer-database refusal).

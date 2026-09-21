@@ -153,10 +153,10 @@ func checkAppDB(ctx context.Context, db *sql.DB, add func(string, Status, string
 		return
 	}
 	switch {
-	case v < int64(store.MigrationCount):
-		add("app db", StatusWarn, "integrity ok — migrations pending (%d/%d applied), launch the app to apply", v, store.MigrationCount)
+	case v < int64(store.MigrationCount()):
+		add("app db", StatusWarn, "integrity ok — migrations pending (%d/%d applied), launch the app to apply", v, store.MigrationCount())
 	default:
-		add("app db", StatusOK, "integrity ok, schema migration %d/%d applied", v, store.MigrationCount)
+		add("app db", StatusOK, "integrity ok, schema migration %d/%d applied", v, store.MigrationCount())
 	}
 }
 

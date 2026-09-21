@@ -27,13 +27,13 @@ const decompressedSizeCap = 8 << 30 // 8 GiB
 
 // Info describes the loaded compendium.
 type Info struct {
-	Schema      int
-	Vintage     time.Time
-	SourceRev   string
-	Generator   string
-	PartCount   int64
-	XrefCount   int64
-	HolderCount int64
+	Schema      int       `json:"schema"`
+	Vintage     time.Time `json:"vintage"`
+	SourceRev   string    `json:"source_rev"`
+	Generator   string    `json:"generator"`
+	PartCount   int64     `json:"part_count"`
+	XrefCount   int64     `json:"xref_count"`
+	HolderCount int64     `json:"holder_count"`
 }
 
 // ErrSchemaTooNew reports a snapshot the app cannot consume yet.
