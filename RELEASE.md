@@ -1,54 +1,49 @@
 # Release runbook — PartsTable Connector
 
-Everything about shipping a release: what is automated, what secrets gate
-the remaining manual pieces, and the exact go-live checklist. The pipeline
-was proven end-to-end on a throwaway tag (draft release, all assets,
-checksums, SBOM, cosign signatures, ghcr image) — see "Pipeline proof"
-below.
+Everything about shipping a release: what is automated, and the exact
+go-live steps. The pipeline was proven end-to-end on a throwaway tag
+(draft release, all assets, checksums, SBOM, cosign signatures, ghcr
+image) — see "Pipeline proof" below.
 
-## What a tag ships (automated today)
+## Signing policy (CEO ruling 2026-09-21)
 
-Pushing a tag `v*` triggers `.github/workflows/release.yml`:
+**The app ships UNSIGNED. No certificate purchases.** Both paid paths
+(Windows Authenticode via Certum/Azure, Apple Developer notarization) are
+rejected by CEO decision; this is a recorded ruling, not an open question.
 
-| Asset | Where it's built | Signed |
-|---|---|---|
-| `partstable-connector_<v>_windows_amd64.zip` | ubuntu (CGO off) | checksums via keyless cosign |
-| `partstable-connector_<v>_linux_amd64.tar.gz` | ubuntu (CGO on, GTK4/WebKit) | checksums via keyless cosign |
-| `checksums.txt` | ubuntu | cosign (keyless, Sigstore) |
-| SBOM per archive (syft) | ubuntu | — |
-| `partstable-connector_<v>_darwin_{amd64,arm64}.tar.gz` | macos job | checksums-darwin.txt via cosign |
-| `ghcr.io/partstablehq/connector:<v>` + `:latest` | ubuntu (Dockerfile) | image signed? — not yet, see go-live |
-| Release page with changelog (git-cliff style from conventional commits) | ubuntu | — |
+What that means in practice, honestly:
 
-Releases are created **draft** today. Flip `draft: false` in both
-`.goreleaser.yml` and `.goreleaser-darwin.yml` at go-live.
+- **Windows**: first launch shows the SmartScreen "Windows protected your
+  PC" screen — users click "More info" → "Run anyway". This friction fades
+  as download volume builds reputation. `winget install` itself works
+  regardless (winget carries the SHA256 we publish). The binary's own
+  integrity is still verifiable: `checksums.txt` + cosign signature ship
+  with every release, and the self-updater verifies them before applying.
+- **macOS**: unsigned binaries trip Gatekeeper on first open — users
+  right-click → "Open" once, or run
+  `xattr -d com.apple.quarantine partstable`. Because that friction is
+  worse than Windows, macOS ships **best-effort** (archives on the
+  release, no installer, not advertised) and stays Windows-first per the
+  FM cut line.
+- **Docker + winget**: unaffected.
 
-## Go-live checklist (v0.1.0)
+Do not add paid-signing steps back without a new CEO decision. If that
+ever changes, the wiring notes are in the git history of this file
+(cosign pins, mac job layout, and the sign-then-rechecksum ordering).
 
-1. **Windows Authenticode signing** (kills SmartScreen warnings) — needs a
-   certificate:
-   - Option A: **Certum Open Source Code Signing** (~€25–69/yr, OSS price).
-   - Option B: **Azure Trusted Signing** ($9.99/mo, US identity validation).
-   - Once issued: add the signing step to the `goreleaser` job between the
-     build and the checksums (sign each `.exe` inside the windows archive,
-     then regenerate `checksums.txt` so the cosign signature covers the
-     signed artifacts). Suggested action: `azure/trusted-signing-action` or
-     `signtool` with the PFX in a secret.
-2. **macOS signing + notarization** — needs the Apple Developer Program
-   ($99/yr): `DEVELOPER_ID_APPLICATION` certificate (secrets:
-   `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`) plus `APPLE_ID`,
-   `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID` for notarytool. Wire
-   `codesign --deep --options runtime` + `notarytool submit` + `stapler`
-   into the `release-macos` job before archiving.
-3. **Flip to public**: `draft: false` in both goreleaser configs.
-4. **Tag and push**: `git tag v0.1.0 && git push origin v0.1.0`.
-5. **Verify** the published release: assets present, `checksums.txt.sig`
+## Go-live checklist (v0.1.0 — unsigned, ready)
+
+1. Flip `draft: false` in `.goreleaser.yml` and `.goreleaser-darwin.yml`.
+2. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
+3. Verify the published release: assets present, `checksums.txt.sig`
    verifies (`cosign verify-blob`), Docker image pulls.
-6. **winget submission** (FM-1): with the release public, submit the
-   manifest in `packaging/winget/` (fill `__VERSION__` and `__SHA256__`
-   from the released installer) as a PR to `microsoft/winget-pkgs` under
-   `w/Partstable/Partstable.Connector`. One-time; later versions flow
-   through the same PR process or the winget automation.
+4. **winget submission** (FM-1): submit the manifests in
+   `packaging/winget/` (fill `__VERSION__` and `__SHA256__` from the
+   released archive) as a PR to `microsoft/winget-pkgs` under
+   `w/Partstable/Partstable.Connector`.
+5. Release notes state plainly that the build is unsigned, link the
+   SmartScreen/"Run anyway" and Gatekeeper instructions, and point at the
+   cosign verification for anyone who wants cryptographic integrity.
 
 ## Pipeline proof (2026-09-21, tag v0.0.0-dev.3)
 
@@ -69,11 +64,14 @@ and the ghcr.io image (pushed with digest for both `:version` and
 `:latest`). Draft and tag were deleted afterwards. Re-run the same way
 after any pipeline change, before a real release.
 
-## Known gaps (honest)
+## Asset matrix (automated on tag)
 
-- ghcr image is not cosign-signed yet (add `cosign sign` on the digest at
-  go-live).
-- Windows Authenticode + macOS notarization are wired-in-waiting; they
-  activate only with the credentials above.
-- winget/scoop/Chocolatey submissions happen after the first public
-  release exists.
+| Asset | Where it's built | Integrity |
+|---|---|---|
+| `partstable-connector_<v>_windows_amd64.zip` | ubuntu (CGO off) | checksums.txt + cosign signature |
+| `partstable-connector_<v>_linux_amd64.tar.gz` | ubuntu (CGO on, GTK4/WebKit) | checksums.txt + cosign signature |
+| `partstable-connector_<v>_darwin_{amd64,arm64}.tar.gz` | macos job | checksums-darwin.txt + cosign signature |
+| SBOM per archive (syft) | ubuntu | — |
+| `ghcr.io/partstablehq/connector:<v>` + `:latest` | ubuntu (Dockerfile) | digest logged in the run |
+
+Binary code signatures: none — see the signing policy above.
