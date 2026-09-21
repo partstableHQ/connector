@@ -63,6 +63,7 @@ interface Health {
   app_version: string;
   compendium: CompendiumInfo | null;
   auth?: AuthStatus | null;
+  update?: UpdateSummary | null;
 }
 
 interface ParseWarning {
@@ -124,6 +125,7 @@ app.innerHTML = `
     <nav class="tabs">
       <button type="button" class="tab active" data-view="lookup">Look up a part</button>
       <button type="button" class="tab" data-view="paste">Paste a list</button>
+      <button type="button" class="tab" data-view="settings">Settings</button>
     </nav>
 
     <section id="view-lookup">
@@ -154,6 +156,36 @@ app.innerHTML = `
       </div>
       <div id="paste-warnings"></div>
       <div id="paste-table"></div>
+    </section>
+
+    <section id="view-settings" class="hidden">
+      <div class="card settings-card">
+        <h3>Account</h3>
+        <p id="settings-account" class="muted">Checking…</p>
+        <button type="button" id="settings-signout" class="secondary hidden">Sign out</button>
+      </div>
+      <div class="card settings-card">
+        <h3>Updates</h3>
+        <p id="settings-update" class="muted">Current version — checking…</p>
+        <div class="actions">
+          <button type="button" id="settings-check">Check for updates</button>
+          <button type="button" id="settings-apply" class="hidden primary">Download update</button>
+        </div>
+        <p id="settings-update-note" class="muted"></p>
+      </div>
+      <div class="card settings-card">
+        <h3>Privacy</h3>
+        <label class="toggle">
+          <input type="checkbox" id="settings-telemetry" />
+          <span>
+            <strong>Send anonymous update checks</strong><br />
+            <span class="muted">The only telemetry: app version, operating system, and a
+            random install ID. No part numbers, no queries, no email — see
+            PRIVACY.md. Force-off also works with
+            <span class="mono">PARTSTABLE_NO_TELEMETRY=1</span>.</span>
+          </span>
+        </label>
+      </div>
     </section>
   </main>
 `;
@@ -262,9 +294,11 @@ const tabs = document.querySelectorAll<HTMLButtonElement>('.tab');
 for (const t of tabs) {
   t.addEventListener('click', () => {
     for (const other of tabs) other.classList.toggle('active', other === t);
-    const view = t.dataset.view === 'paste' ? 'paste' : 'lookup';
+    const view = t.dataset.view === 'paste' ? 'paste' : t.dataset.view === 'settings' ? 'settings' : 'lookup';
     document.querySelector('#view-lookup')!.classList.toggle('hidden', view !== 'lookup');
     document.querySelector('#view-paste')!.classList.toggle('hidden', view !== 'paste');
+    document.querySelector('#view-settings')!.classList.toggle('hidden', view !== 'settings');
+    if (view === 'settings') refreshSettings();
   });
 }
 
@@ -601,5 +635,136 @@ function renderPaste(res: PasteResponse): void {
   pasteExport.disabled = gridData.length === 0;
   renderGrid();
 }
+
+// ---- settings (FM-11 updates, FM-13 privacy toggle) ---------------------
+
+const settingsAccount = document.querySelector<HTMLElement>('#settings-account')!;
+const settingsSignOut = document.querySelector<HTMLButtonElement>('#settings-signout')!;
+const settingsUpdate = document.querySelector<HTMLElement>('#settings-update')!;
+const settingsUpdateNote = document.querySelector<HTMLElement>('#settings-update-note')!;
+const settingsCheck = document.querySelector<HTMLButtonElement>('#settings-check')!;
+const settingsApply = document.querySelector<HTMLButtonElement>('#settings-apply')!;
+const settingsTelemetry = document.querySelector<HTMLInputElement>('#settings-telemetry')!;
+
+interface UpdateSummary {
+  current: string;
+  latest?: string;
+  available: boolean;
+  telemetry_opt_out: boolean;
+}
+
+function refreshSettings(): void {
+  void (async () => {
+    try {
+      const [hRes, sRes] = await Promise.all([
+        fetch(`${API_BASE}/health`),
+        fetch(`${API_BASE}/settings`),
+      ]);
+      const health: Health = await hRes.json();
+      const settings = (await sRes.json()) as { telemetry_opt_out: boolean; telemetry_env_forced: boolean };
+
+      settingsAccount.textContent = health.auth?.signed_in
+        ? `Signed in as ${health.auth.email}`
+        : 'Not signed in — optional. The banner on the other tabs starts sign-in.';
+      settingsSignOut.classList.toggle('hidden', !health.auth?.signed_in);
+      settingsTelemetry.checked = !settings.telemetry_opt_out;
+      if (settings.telemetry_env_forced) {
+        settingsTelemetry.disabled = true;
+        settingsTelemetry.checked = false;
+      } else {
+        settingsTelemetry.disabled = false;
+      }
+
+      const u = health.update;
+      if (u) {
+        settingsUpdate.textContent = u.latest
+          ? `Current ${u.current} · latest release ${u.latest}${u.available ? ' — update available' : ''}`
+          : `Current ${u.current} — no release published yet`;
+      } else {
+        settingsUpdate.textContent = `Current ${health.app_version}`;
+      }
+    } catch {
+      settingsAccount.textContent = 'The local service is not answering.';
+    }
+  })();
+}
+
+settingsCheck.addEventListener('click', () => {
+  settingsCheck.disabled = true;
+  settingsUpdateNote.textContent = 'Checking… (this sends the anonymous update ping unless turned off)';
+  void (async () => {
+    try {
+      const r = await fetch(`${API_BASE}/update/check`, { method: 'POST' });
+      const body = (await r.json()) as UpdateSummary & { error?: string };
+      if (!r.ok) {
+        settingsUpdateNote.textContent = body.error ?? 'check failed';
+        return;
+      }
+      if (body.available) {
+        settingsUpdate.textContent = `Current ${body.current} · latest release ${body.latest} — update available`;
+        settingsUpdateNote.textContent = 'The download swaps the app in place; restart afterwards to finish.';
+        settingsApply.classList.remove('hidden');
+      } else {
+        settingsUpdate.textContent = `Current ${body.current} — you are up to date`;
+        settingsUpdateNote.textContent = '';
+      }
+    } catch {
+      settingsUpdateNote.textContent = 'The local service is not answering.';
+    } finally {
+      settingsCheck.disabled = false;
+    }
+  })();
+});
+
+settingsApply.addEventListener('click', () => {
+  settingsApply.disabled = true;
+  settingsUpdateNote.textContent = 'Downloading…';
+  void (async () => {
+    try {
+      const r = await fetch(`${API_BASE}/update/apply`, { method: 'POST' });
+      const body = (await r.json()) as { applied?: boolean; version?: string; reason?: string; error?: string };
+      if (!r.ok) {
+        settingsUpdateNote.textContent = body.error ?? 'download failed';
+        return;
+      }
+      if (body.applied) {
+        settingsUpdateNote.textContent = `Downloaded ${body.version} — close and reopen the app to finish the update.`;
+        settingsApply.classList.add('hidden');
+      } else {
+        settingsUpdateNote.textContent = body.reason ?? 'No update to apply.';
+        settingsApply.classList.add('hidden');
+      }
+    } catch {
+      settingsUpdateNote.textContent = 'The local service is not answering.';
+    } finally {
+      settingsApply.disabled = false;
+    }
+  })();
+});
+
+settingsTelemetry.addEventListener('change', () => {
+  void (async () => {
+    try {
+      await fetch(`${API_BASE}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telemetry_opt_out: !settingsTelemetry.checked }),
+      });
+    } catch {
+      settingsUpdateNote.textContent = 'Could not save the setting — the local service is not answering.';
+    }
+  })();
+});
+
+settingsSignOut.addEventListener('click', () => {
+  void (async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
+      refreshSettings();
+    } catch {
+      /* status refresh below will show the failure */
+    }
+  })();
+});
 
 void loadHealth();

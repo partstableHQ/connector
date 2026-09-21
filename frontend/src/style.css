@@ -439,3 +439,51 @@ td {
 table.grid td {
   vertical-align: top;
 }
+
+/* ---- settings --------------------------------------------------------- */
+
+.settings-card {
+  margin-bottom: 1rem;
+}
+
+.settings-card h3 {
+  margin-top: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  color: var(--pt-text-muted);
+}
+
+.toggle {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.toggle input {
+  margin-top: 0.25rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--pt-primary);
+}
+
+button.secondary {
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
+  color: var(--pt-text);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+button.secondary:hover {
+  border-color: var(--pt-primary-bright);
+  color: var(--pt-primary);
+}
+
+.hidden {
+  display: none;
+}

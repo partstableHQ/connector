@@ -38,7 +38,7 @@ func testServer(t *testing.T) *httptest.Server {
 			t.Fatalf("seed: %v", err)
 		}
 	}
-	ts := httptest.NewServer(New(lookup.New(db), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore())).Handler())
+	ts := httptest.NewServer(New(lookup.New(db), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil).Handler())
 	t.Cleanup(ts.Close)
 	return ts
 }
@@ -237,7 +237,7 @@ func TestPasteExportEndpoint(t *testing.T) {
 }
 
 func TestPasteWithoutCompendium(t *testing.T) {
-	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore())).Handler())
+	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil).Handler())
 	t.Cleanup(ts.Close)
 
 	resp, err := http.Post(ts.URL+"/paste", "text/plain", strings.NewReader("02CL197"))
@@ -252,7 +252,7 @@ func TestPasteWithoutCompendium(t *testing.T) {
 
 func TestAuthEndpoints(t *testing.T) {
 	mgr := auth.NewManager(auth.Config{}, auth.NewMemoryStore())
-	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, mgr).Handler())
+	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, mgr, nil).Handler())
 	t.Cleanup(ts.Close)
 
 	// Unsigned by default; the health payload carries the auth state.

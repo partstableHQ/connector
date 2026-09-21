@@ -17,6 +17,7 @@ import (
 	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/paths"
 	"github.com/partstableHQ/connector/internal/store"
+	"github.com/partstableHQ/connector/internal/update"
 	"github.com/partstableHQ/connector/internal/version"
 )
 
@@ -41,10 +42,11 @@ type Check struct {
 
 // Options selects what to diagnose. DataDir empty means the default
 // location (internal/paths); tests pass an explicit directory. A nil
-// KeychainProbe means the real OS keychain.
+// KeychainProbe or UpdateProbe means the real machine check.
 type Options struct {
 	DataDir       string
 	KeychainProbe func() KeychainState
+	UpdateProbe   func() UpdateChannelState
 }
 
 // KeychainState is what the keychain check needs to know.
@@ -54,12 +56,29 @@ type KeychainState struct {
 	Email     string
 }
 
+// UpdateChannelState is what the update-channel check needs to know.
+type UpdateChannelState struct {
+	Reachable bool
+	Latest    string
+}
+
 func realKeychainProbe() KeychainState {
 	info, found, err := (auth.KeyringStore{}).Load()
 	if err != nil {
 		return KeychainState{}
 	}
 	return KeychainState{Reachable: true, SignedIn: found, Email: info.Email}
+}
+
+func realUpdateProbe() UpdateChannelState {
+	m := update.NewManager(version.Version(), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	latest, _, err := m.DetectOnly(ctx)
+	if err != nil {
+		return UpdateChannelState{}
+	}
+	return UpdateChannelState{Reachable: true, Latest: latest}
 }
 
 // Summary aggregates the checks; Fail > 0 means the doctor exits nonzero.
@@ -156,8 +175,21 @@ func Run(ctx context.Context, opts Options, w io.Writer) (Summary, error) {
 		add("keychain", StatusOK, "signed in as %s — key in the OS keychain", kc.Email)
 	}
 
-	// 5. Update channel: still on the roadmap — reported as skipped, never red.
-	add("update channel", StatusSkip, "arrives with self-update (ROADMAP slice 6)")
+	// 5. Update channel: reachable, and what it advertises. The probe
+	// never sends the telemetry ping — doctor diagnoses, it doesn't count.
+	ucProbe := opts.UpdateProbe
+	if ucProbe == nil {
+		ucProbe = realUpdateProbe
+	}
+	uc := ucProbe()
+	switch {
+	case !uc.Reachable:
+		add("update channel", StatusWarn, "unreachable — the app will retry automatically")
+	case uc.Latest == "":
+		add("update channel", StatusOK, "reachable (no release published yet)")
+	default:
+		add("update channel", StatusOK, "reachable — latest release %s", uc.Latest)
+	}
 
 	write("\n")
 	for _, c := range sum.Checks {

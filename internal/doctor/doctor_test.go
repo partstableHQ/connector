@@ -32,6 +32,7 @@ func TestRunFreshInstall(t *testing.T) {
 	sum, err := Run(context.Background(), Options{
 		DataDir:       t.TempDir(),
 		KeychainProbe: func() KeychainState { return KeychainState{Reachable: true} },
+		UpdateProbe:   func() UpdateChannelState { return UpdateChannelState{Reachable: true} },
 	}, &buf)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -72,6 +73,7 @@ func TestRunHealthyInstall(t *testing.T) {
 		KeychainProbe: func() KeychainState {
 			return KeychainState{Reachable: true, SignedIn: true, Email: "t@example.com"}
 		},
+		UpdateProbe: func() UpdateChannelState { return UpdateChannelState{Reachable: true} },
 	}, &buf)
 	if err != nil {
 		t.Fatalf("run: %v", err)

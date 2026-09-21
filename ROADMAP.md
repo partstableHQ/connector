@@ -11,7 +11,7 @@ completion claims without verification.
 | 3 | Lookup UI + local API (`/lookup` `/xref` `/bulk`, 127.0.0.1 only) | FM-5, FM-6, FM-15 | **shipped** (2026-09-20) — verified end-to-end against a seeded compendium; public API docs deferred to v1.1 per the cut line |
 | 4 | Paste-a-list parser + results table + Excel export | FM-7, FM-8, FM-9 | **shipped** (2026-09-21) — verified end-to-end in-browser (sort/filter/column-hide/warnings); export verified by xlsx read-back. Grid runs on @tanstack/table-core pinned to v8 (v9's vanilla API is adapter-oriented) with explicit state slices (8.21 reads unregistered slices unconditionally) |
 | 5 | Auth: browser OAuth+PKCE pairing, OS keychain storage | FM-3 | **shipped** (2026-09-21) — client side complete and verified against an in-process fake IdP (which verifies the PKCE binding for real) + a live keychain smoke; wire contract at `internal/auth/FLOW.md` for the server-side identity service (to be built) |
-| 6 | Self-update + anonymous update-check ping + Settings | FM-11, FM-13 | planned |
+| 6 | Self-update + anonymous update-check ping + Settings | FM-11, FM-13 | **shipped** (2026-09-21) — live check verified against the real repo (no releases yet → honest report); ping payload captured and asserted to the 4-field PRIVACY.md contract; opt-out via Settings toggle and env both proven. Releases flip from draft at the slice-8 release pass |
 | 7 | Offline verification pass + branding pass (Geist, tokens) + single "There's more" link | FM-10, FM-17, FM-18 | planned |
 | 8 | Release engineering: v0.1.0 — Authenticode signing, notarized DMG, winget/scoop PRs, Docker (ghcr.io), screenshots → demo GIF | FM-1, FM-2, FM-14, FM-20 full pass | planned |
 

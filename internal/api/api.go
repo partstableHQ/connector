@@ -21,6 +21,8 @@ import (
 	"github.com/partstableHQ/connector/internal/export"
 	"github.com/partstableHQ/connector/internal/lookup"
 	"github.com/partstableHQ/connector/internal/parse"
+	"github.com/partstableHQ/connector/internal/telemetry"
+	"github.com/partstableHQ/connector/internal/update"
 )
 
 // DefaultPort is the loopback port the local API binds.
@@ -51,17 +53,19 @@ func Port() (int, error) {
 type Server struct {
 	svc     *lookup.Service
 	authm   *auth.Manager
+	updatem *update.Manager
 	version string
 	addr    string
 	http    *http.Server
 }
 
-// New builds the API server. authm may be nil (the auth verbs then report
-// unavailable). It does not bind; call Listen + Serve.
-func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager) *Server {
+// New builds the API server. authm and updatem may be nil (their verbs
+// then report unavailable). It does not bind; call Listen + Serve.
+func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, updatem *update.Manager) *Server {
 	s := &Server{
 		svc:     svc,
 		authm:   authm,
+		updatem: updatem,
 		version: appVersion,
 		addr:    fmt.Sprintf("127.0.0.1:%d", port),
 	}
@@ -74,6 +78,10 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager) 
 	mux.HandleFunc("POST /paste/export", s.handlePasteExport)
 	mux.HandleFunc("POST /auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("POST /update/check", s.handleUpdateCheck)
+	mux.HandleFunc("POST /update/apply", s.handleUpdateApply)
+	mux.HandleFunc("GET /settings", s.handleGetSettings)
+	mux.HandleFunc("POST /settings", s.handlePostSettings)
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -119,6 +127,7 @@ type healthResponse struct {
 	AppVersion string           `json:"app_version"`
 	Compendium *compendium.Info `json:"compendium"`
 	Auth       *auth.Status     `json:"auth"`
+	Update     *update.Summary  `json:"update"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +141,82 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		st := s.authm.Status()
 		resp.Auth = &st
 	}
+	if s.updatem != nil {
+		sm := s.updatem.Summary(r.Context())
+		resp.Update = &sm
+	}
 	respond(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if s.updatem == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "update manager unavailable"})
+		return
+	}
+	res, err := s.updatem.Check(r.Context())
+	if err != nil {
+		respond(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	respond(w, http.StatusOK, res)
+}
+
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if s.updatem == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "update manager unavailable"})
+		return
+	}
+	version, err := s.updatem.Apply(r.Context())
+	switch {
+	case errors.Is(err, update.ErrUpToDate):
+		respond(w, http.StatusOK, map[string]any{"applied": false, "reason": "already up to date"})
+	case err != nil:
+		respond(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+	default:
+		respond(w, http.StatusOK, map[string]any{"applied": true, "version": version, "restart": true})
+	}
+}
+
+type settingsPayload struct {
+	TelemetryOptOut *bool `json:"telemetry_opt_out"`
+}
+
+type settingsResponse struct {
+	TelemetryOptOut    bool `json:"telemetry_opt_out"`
+	TelemetryEnvForced bool `json:"telemetry_env_forced"`
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	if s.updatem == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "settings unavailable"})
+		return
+	}
+	respond(w, http.StatusOK, settingsResponse{
+		TelemetryOptOut:    s.updatem.OptedOut(r.Context()),
+		TelemetryEnvForced: telemetry.EnvForcedOptOut(),
+	})
+}
+
+func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
+	if s.updatem == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "settings unavailable"})
+		return
+	}
+	var body settingsPayload
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: " + err.Error()})
+		return
+	}
+	if body.TelemetryOptOut != nil {
+		if err := s.updatem.SetOptOut(r.Context(), *body.TelemetryOptOut); err != nil {
+			respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	respond(w, http.StatusOK, settingsResponse{
+		TelemetryOptOut:    s.updatem.OptedOut(r.Context()),
+		TelemetryEnvForced: telemetry.EnvForcedOptOut(),
+	})
 }
 
 func (s *Server) handleAuthLogin(w http.ResponseWriter, _ *http.Request) {

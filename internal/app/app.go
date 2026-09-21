@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/lookup"
 	"github.com/partstableHQ/connector/internal/paths"
+	"github.com/partstableHQ/connector/internal/store"
+	"github.com/partstableHQ/connector/internal/update"
 	"github.com/partstableHQ/connector/internal/version"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -66,8 +69,12 @@ func startLocalAPI() func() {
 		fmt.Fprintln(os.Stderr, "partstable:", err)
 		return nil
 	}
-	manager := auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore())
-	srv := api.New(lookup.New(OpenCompendium()), version.Version(), port, manager)
+	// The app database opens and migrates eagerly at every startup
+	// (BUILD-GUIDE §1); the update channel needs it for the install id
+	// and the telemetry opt-out setting.
+	authManager := auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore())
+	updateManager := update.NewManager(version.Version(), OpenAppDB())
+	srv := api.New(lookup.New(OpenCompendium()), version.Version(), port, authManager, updateManager)
 	l, err := srv.Listen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "partstable: local API could not bind %s (%v) — the UI will show no data; free the port or set %s=<port>\n",
@@ -85,6 +92,27 @@ func startLocalAPI() func() {
 		_ = srv.Close()
 		<-done
 	}
+}
+
+// OpenAppDB opens and migrates the application database eagerly at
+// startup. Failures degrade to nil — features that need it report
+// honestly rather than blocking the app.
+func OpenAppDB() *sql.DB {
+	path, err := paths.AppDB()
+	if err != nil {
+		return nil
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "partstable: app database unavailable (%v) — run `partstable doctor`\n", err)
+		return nil
+	}
+	if err := store.Migrate(context.Background(), db); err != nil {
+		_ = db.Close()
+		fmt.Fprintf(os.Stderr, "partstable: app database migration failed (%v) — run `partstable doctor`\n", err)
+		return nil
+	}
+	return db
 }
 
 // OpenCompendium opens the installed compendium read-only. A missing file

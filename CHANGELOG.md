@@ -8,6 +8,13 @@ release time; this section is the format template.
 
 ### Added
 
+- Self-updates + anonymous telemetry (FM-11, FM-13): update checks against
+  GitHub Releases (partstableHQ/connector) with in-place binary swap
+  (previous version kept as `.old` for rollback, restart to finish); the
+  update check doubles as the app's ONLY telemetry — version, OS, arch and
+  a random install UUID, default on, off via the Settings toggle or
+  `PARTSTABLE_NO_TELEMETRY=1`. Settings tab: updates, privacy toggle, and
+  sign-out. `partstable update` CLI verb.
 - Account sign-in (FM-3): browser OAuth+PKCE pairing with a loopback
   redirect, key stored in the OS keychain (Windows Credential Manager /
   Keychain / libsecret — never plain files), `partstable login --api-key`

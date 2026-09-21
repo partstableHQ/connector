@@ -11,12 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/partstableHQ/connector/internal/api"
 	"github.com/partstableHQ/connector/internal/app"
 	"github.com/partstableHQ/connector/internal/auth"
 	"github.com/partstableHQ/connector/internal/doctor"
 	"github.com/partstableHQ/connector/internal/lookup"
+	"github.com/partstableHQ/connector/internal/update"
 	"github.com/partstableHQ/connector/internal/version"
 )
 
@@ -30,6 +32,7 @@ Usage:
   partstable login --api-key
                       paste an API key instead (headless machines)
   partstable logout   remove the stored key from this machine
+  partstable update   check for updates and apply them (restart to finish)
   partstable version  print version information
 `
 
@@ -51,6 +54,8 @@ func main() {
 		os.Exit(runLogin(pasteKey))
 	case "logout":
 		os.Exit(runLogout())
+	case "update":
+		os.Exit(runUpdate())
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	default:
@@ -84,7 +89,9 @@ func runServe() int {
 		fmt.Fprintln(os.Stderr, "partstable serve:", err)
 		return 1
 	}
-	srv := api.New(lookup.New(app.OpenCompendium()), version.Version(), port, auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore()))
+	srv := api.New(lookup.New(app.OpenCompendium()), version.Version(), port,
+		auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore()),
+		update.NewManager(version.Version(), app.OpenAppDB()))
 	l, err := srv.Listen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "partstable serve: cannot bind %s (%v) — free the port or set %s=<port>\n",
@@ -153,5 +160,46 @@ func runLogout() int {
 		return 1
 	}
 	fmt.Println("Signed out — the key was removed from the OS keychain.")
+	return 0
+}
+
+// runUpdate checks the release channel (sending the anonymous ping unless
+// opted out) and stages a newer release. A restart finishes the update.
+func runUpdate() int {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	m := update.NewManager(version.Version(), app.OpenAppDB())
+	res, err := m.Check(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "partstable update:", err)
+		return 1
+	}
+	fmt.Printf("Current version %s.", res.Current)
+	if res.Latest == "" {
+		fmt.Println(" No release has been published yet.")
+	} else {
+		fmt.Printf(" Latest release %s.\n", res.Latest)
+	}
+	switch {
+	case res.PingSent:
+		fmt.Println("Anonymous update ping sent (no part numbers, no PII — see PRIVACY.md).")
+	case res.PingSkipped != "":
+		fmt.Printf("Update ping skipped: %s.\n", res.PingSkipped)
+	}
+	if !res.Available {
+		return 0
+	}
+	fmt.Println("Downloading…")
+	v, err := m.Apply(ctx)
+	if errors.Is(err, update.ErrUpToDate) {
+		fmt.Println("Already on the latest version.")
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "partstable update:", err)
+		return 1
+	}
+	fmt.Printf("Downloaded %s — restart partstable to finish the update.\n", v)
 	return 0
 }
