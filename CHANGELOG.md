@@ -8,6 +8,16 @@ release time; this section is the format template.
 
 ### Added
 
+- Paste a list (FM-7, FM-8, FM-9): parse pasted text — lines, commas,
+  semicolons, tabs, CSV, quantities as `x4` / `4x` / `qty 4` / `qty:4` /
+  `qty=4`, and quote-email prose — into one sortable, filterable broker
+  table (Your part / Qty / Description / Substitutes / Holders, column
+  show-hide) with citation chips on every fact, and one-click .xlsx export
+  (headers, quantities, citation columns, frozen header row). Unparseable
+  lines surface in a warnings panel — nothing is dropped silently.
+- `POST /paste` and `POST /paste/export` on the local API: the same verbs
+  the UI uses, backed by the `internal/parse` engine (aggregate quantities
+  per part, per-line warnings) and the `internal/export` writer.
 - Lookup UI + local API (FM-5, FM-6, FM-15): single-PN lookup with
   normalization displayed and verbatim queries preserved, citation chips on
   every fact (hover for the full source detail), and the loopback REST API

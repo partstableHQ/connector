@@ -9,7 +9,7 @@ completion claims without verification.
 | 1 | Skeleton: repo, Wails v3 shell, CI (3 OSes), goreleaser dry-run | FM-19, FM-20 groundwork | **shipped** (2026-09-20) |
 | 2 | Store: embedded SQLite (modernc) + goose migrations + snapshot loader/verifier + `doctor` | FM-4, FM-12, FM-16 | **shipped** (2026-09-20) — snapshot format contract: `internal/compendium/FORMAT.md`; migrations live at `internal/store/migrations/` (Go embed cannot cross package dirs) |
 | 3 | Lookup UI + local API (`/lookup` `/xref` `/bulk`, 127.0.0.1 only) | FM-5, FM-6, FM-15 | **shipped** (2026-09-20) — verified end-to-end against a seeded compendium; public API docs deferred to v1.1 per the cut line |
-| 4 | Paste-a-list parser + results table + Excel export | FM-7, FM-8, FM-9 | planned |
+| 4 | Paste-a-list parser + results table + Excel export | FM-7, FM-8, FM-9 | **shipped** (2026-09-21) — verified end-to-end in-browser (sort/filter/column-hide/warnings); export verified by xlsx read-back. Grid runs on @tanstack/table-core pinned to v8 (v9's vanilla API is adapter-oriented) with explicit state slices (8.21 reads unregistered slices unconditionally) |
 | 5 | Auth: browser OAuth+PKCE pairing, OS keychain storage | FM-3 | planned |
 | 6 | Self-update + anonymous update-check ping + Settings | FM-11, FM-13 | planned |
 | 7 | Offline verification pass + branding pass (Geist, tokens) + single "There's more" link | FM-10, FM-17, FM-18 | planned |

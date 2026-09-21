@@ -235,3 +235,169 @@ td {
   background: #fde68a;
   color: #78350f;
 }
+
+/* ---- tabs ---------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--pt-border);
+}
+
+.tab {
+  padding: 0.55rem 1rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--pt-text-muted);
+  cursor: pointer;
+}
+
+.tab.active {
+  color: var(--pt-primary);
+  border-bottom-color: var(--pt-primary);
+  font-weight: 600;
+}
+
+.hidden {
+  display: none;
+}
+
+.lede {
+  color: var(--pt-text);
+  margin: 0 0 0.75rem;
+}
+
+/* ---- paste view ------------------------------------------------------ */
+
+#paste {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  font-family: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.9rem;
+  border: 1px solid var(--pt-border);
+  border-radius: 0.45rem;
+  resize: vertical;
+}
+
+#paste:focus {
+  outline: 2px solid var(--pt-primary-bright);
+  border-color: var(--pt-primary-bright);
+}
+
+.actions {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.actions button {
+  padding: 0.6rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 0.45rem;
+  border: 1px solid var(--pt-border);
+  background: var(--pt-surface);
+  color: var(--pt-text);
+  cursor: pointer;
+}
+
+.actions button.primary {
+  background: var(--pt-primary);
+  border-color: var(--pt-primary);
+  color: #fff;
+}
+
+.actions button.primary:hover {
+  background: var(--pt-primary-bright);
+}
+
+.actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.panel-warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 0.6rem;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.panel-warn ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.panel-warn li {
+  margin-bottom: 0.25rem;
+}
+
+/* ---- the broker grid (FM-8) ------------------------------------------ */
+
+.grid-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+#grid-filter {
+  flex: 0 1 18rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  border: 1px solid var(--pt-border);
+  border-radius: 0.4rem;
+}
+
+.cols {
+  position: relative;
+}
+
+.cols summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--pt-text-muted);
+  list-style: none;
+  border: 1px solid var(--pt-border);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--pt-surface);
+}
+
+.cols > div {
+  position: absolute;
+  z-index: 10;
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
+  border-radius: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  margin-top: 0.3rem;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 11rem;
+}
+
+.cols label {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.rowcount {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--pt-text-muted);
+}
+
+table.grid td {
+  vertical-align: top;
+}

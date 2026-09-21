@@ -4,9 +4,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +17,9 @@ import (
 	"time"
 
 	"github.com/partstableHQ/connector/internal/compendium"
+	"github.com/partstableHQ/connector/internal/export"
 	"github.com/partstableHQ/connector/internal/lookup"
+	"github.com/partstableHQ/connector/internal/parse"
 )
 
 // DefaultPort is the loopback port the local API binds.
@@ -62,6 +66,8 @@ func New(svc *lookup.Service, appVersion string, port int) *Server {
 	mux.HandleFunc("GET /lookup", s.handleLookup)
 	mux.HandleFunc("GET /xref", s.handleXref)
 	mux.HandleFunc("POST /bulk", s.handleBulk)
+	mux.HandleFunc("POST /paste", s.handlePaste)
+	mux.HandleFunc("POST /paste/export", s.handlePasteExport)
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -184,6 +190,85 @@ func respondResult(w http.ResponseWriter, res lookup.Result, err error) {
 	default:
 		respond(w, http.StatusOK, res)
 	}
+}
+
+// maxPasteBytes caps a pasted list; 4 MB is orders of magnitude beyond a
+// 500-part quote (FM-7) while bounding abuse of the loopback.
+const maxPasteBytes = 4 << 20
+
+// pasteEntry is one parsed line of the paste with its lookup answer.
+type pasteEntry struct {
+	parse.Entry
+	Result *lookup.Result `json:"result"`
+}
+
+type pasteResponse struct {
+	Entries  []pasteEntry    `json:"entries"`
+	Warnings []parse.Warning `json:"warnings"`
+}
+
+// pasteRows is the shared path of both paste verbs: parse the raw text,
+// look up every aggregated entry. The parser-warns rule means the
+// warnings list rides along no matter what.
+func (s *Server) pasteRows(ctx context.Context, text string) ([]pasteEntry, []parse.Warning, error) {
+	pr := parse.Parse(text)
+	entries := make([]pasteEntry, 0, len(pr.Entries))
+	for _, e := range pr.Entries {
+		res, err := s.svc.Lookup(ctx, e.Norm)
+		if err != nil {
+			return nil, nil, err
+		}
+		entries = append(entries, pasteEntry{Entry: e, Result: &res})
+	}
+	return entries, pr.Warnings, nil
+}
+
+func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPasteBytes))
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "paste too large or unreadable"})
+		return
+	}
+	entries, warnings, err := s.pasteRows(r.Context(), string(body))
+	if errors.Is(err, lookup.ErrNoCompendium) {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	respond(w, http.StatusOK, pasteResponse{Entries: entries, Warnings: warnings})
+}
+
+func (s *Server) handlePasteExport(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPasteBytes))
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "paste too large or unreadable"})
+		return
+	}
+	entries, _, err := s.pasteRows(r.Context(), string(body))
+	if errors.Is(err, lookup.ErrNoCompendium) {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	rows := make([]export.Row, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, export.Row{Entry: e.Entry, Res: e.Result})
+	}
+	xlsx, err := export.Build(rows)
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="partstable-list.xlsx"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(xlsx)
 }
 
 func respond(w http.ResponseWriter, status int, payload any) {

@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -167,6 +168,84 @@ func TestCORSPreflight(t *testing.T) {
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got == "" {
 		t.Fatal("CORS origin header missing — the desktop webview could not call the API")
+	}
+}
+
+func TestPasteEndpoint(t *testing.T) {
+	ts := testServer(t)
+
+	paste := "02CL197 x4\ngarbage line!!\n02cl197, 2"
+	resp, err := http.Post(ts.URL+"/paste", "text/plain", strings.NewReader(paste))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body pasteResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+
+	// Identical identities aggregate into one entry of qty 6; the alias
+	// form 2CL197 would stay a distinct identity by design.
+	if len(body.Entries) != 1 || body.Entries[0].Qty != 6 {
+		t.Fatalf("entries = %+v", body.Entries)
+	}
+	if body.Entries[0].PN != "02CL197" || body.Entries[0].Norm != "02CL197" {
+		t.Fatalf("verbatim identity wrong: %+v", body.Entries[0].Entry)
+	}
+	if body.Entries[0].Result == nil || body.Entries[0].Result.Part == nil {
+		t.Fatalf("lookup result missing: %+v", body.Entries[0].Result)
+	}
+	if len(body.Entries[0].Result.Part.Xrefs) != 1 {
+		t.Fatalf("cited xrefs missing")
+	}
+
+	// The garbage line must surface as a warning, never vanish.
+	if len(body.Warnings) != 1 || body.Warnings[0].Line != 2 || body.Warnings[0].Raw != "garbage line!!" {
+		t.Fatalf("warnings = %+v", body.Warnings)
+	}
+}
+
+func TestPasteExportEndpoint(t *testing.T) {
+	ts := testServer(t)
+
+	resp, err := http.Post(ts.URL+"/paste/export", "text/plain", strings.NewReader("02CL197 x4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "spreadsheetml") {
+		t.Fatalf("content type = %q", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
+		t.Fatalf("disposition = %q", cd)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(buf.Bytes(), []byte("PK")) || buf.Len() < 1000 {
+		t.Fatalf("body is not a plausible xlsx (%d bytes)", buf.Len())
+	}
+}
+
+func TestPasteWithoutCompendium(t *testing.T) {
+	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort).Handler())
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Post(ts.URL+"/paste", "text/plain", strings.NewReader("02CL197"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status %d, want 503", resp.StatusCode)
 	}
 }
 
