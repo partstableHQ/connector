@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/partstableHQ/connector/internal/auth"
 	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/lookup"
 )
@@ -37,7 +38,7 @@ func testServer(t *testing.T) *httptest.Server {
 			t.Fatalf("seed: %v", err)
 		}
 	}
-	ts := httptest.NewServer(New(lookup.New(db), "test-version", DefaultPort).Handler())
+	ts := httptest.NewServer(New(lookup.New(db), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore())).Handler())
 	t.Cleanup(ts.Close)
 	return ts
 }
@@ -236,7 +237,7 @@ func TestPasteExportEndpoint(t *testing.T) {
 }
 
 func TestPasteWithoutCompendium(t *testing.T) {
-	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort).Handler())
+	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore())).Handler())
 	t.Cleanup(ts.Close)
 
 	resp, err := http.Post(ts.URL+"/paste", "text/plain", strings.NewReader("02CL197"))
@@ -246,6 +247,47 @@ func TestPasteWithoutCompendium(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestAuthEndpoints(t *testing.T) {
+	mgr := auth.NewManager(auth.Config{}, auth.NewMemoryStore())
+	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, mgr).Handler())
+	t.Cleanup(ts.Close)
+
+	// Unsigned by default; the health payload carries the auth state.
+	code, body := getJSON(t, ts.URL+"/health")
+	if code != http.StatusOK {
+		t.Fatalf("health status %d", code)
+	}
+	authState, ok := body["auth"].(map[string]any)
+	if !ok || authState["signed_in"] != false {
+		t.Fatalf("health auth wrong: %v", body["auth"])
+	}
+
+	// Sign out without a stored key: a clean no-op.
+	resp, err := http.Post(ts.URL+"/auth/logout", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("logout status %d", resp.StatusCode)
+	}
+
+	// Login starts the background pairing flow; the endpoint's contract is
+	// the 202 + started, not the flow's completion.
+	resp, err = http.Post(ts.URL+"/auth/login", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started map[string]bool
+	if err := json.NewDecoder(resp.Body).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted || !started["started"] {
+		t.Fatalf("login start = %d %v", resp.StatusCode, started)
 	}
 }
 

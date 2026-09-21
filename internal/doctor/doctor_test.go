@@ -29,18 +29,21 @@ func openMigratedAppDB(ctx context.Context, path string) (*sql.DB, error) {
 // the report says what to do next (FM-16: actionable messages).
 func TestRunFreshInstall(t *testing.T) {
 	var buf bytes.Buffer
-	sum, err := Run(context.Background(), Options{DataDir: t.TempDir()}, &buf)
+	sum, err := Run(context.Background(), Options{
+		DataDir:       t.TempDir(),
+		KeychainProbe: func() KeychainState { return KeychainState{Reachable: true} },
+	}, &buf)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if sum.Count(StatusFail) != 0 {
 		t.Fatalf("fresh install must not fail: %+v", sum.Checks)
 	}
-	if sum.Count(StatusWarn) < 2 {
-		t.Fatalf("expected warns for uninitialized app db and compendium: %+v", sum.Checks)
+	if sum.Count(StatusWarn) < 3 {
+		t.Fatalf("expected warns for app db, compendium, and sign-in: %+v", sum.Checks)
 	}
 	out := buf.String()
-	for _, want := range []string{"launch the app once", "install a release snapshot"} {
+	for _, want := range []string{"launch the app once", "install a release snapshot", "partstable login"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report missing actionable message %q:\n%s", want, out)
 		}
@@ -64,7 +67,12 @@ func TestRunHealthyInstall(t *testing.T) {
 	seedCompendium(ctx, t, filepath.Join(dir, "compendium.db"))
 
 	var buf bytes.Buffer
-	sum, err := Run(ctx, Options{DataDir: dir}, &buf)
+	sum, err := Run(ctx, Options{
+		DataDir: dir,
+		KeychainProbe: func() KeychainState {
+			return KeychainState{Reachable: true, SignedIn: true, Email: "t@example.com"}
+		},
+	}, &buf)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

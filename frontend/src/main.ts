@@ -52,9 +52,17 @@ interface CompendiumInfo {
   part_count: number;
 }
 
+interface AuthStatus {
+  signed_in: boolean;
+  email?: string;
+  signing_in: boolean;
+  last_error?: string;
+}
+
 interface Health {
   app_version: string;
   compendium: CompendiumInfo | null;
+  auth?: AuthStatus | null;
 }
 
 interface ParseWarning {
@@ -108,9 +116,11 @@ app.innerHTML = `
       <span class="brand-mark">PT</span>
       <span class="brand-name">PartsTable <span class="brand-sub">Connector</span></span>
     </div>
+    <span class="account" id="account"></span>
     <span class="vintage" id="vintage">checking local data…</span>
   </header>
   <main class="content">
+    <div id="auth" class="hidden"></div>
     <nav class="tabs">
       <button type="button" class="tab active" data-view="lookup">Look up a part</button>
       <button type="button" class="tab" data-view="paste">Paste a list</button>
@@ -149,6 +159,8 @@ app.innerHTML = `
 `;
 
 const vintageEl = document.querySelector<HTMLSpanElement>('#vintage')!;
+const accountEl = document.querySelector<HTMLSpanElement>('#account')!;
+const authEl = document.querySelector<HTMLElement>('#auth')!;
 const resultEl = document.querySelector<HTMLElement>('#result')!;
 const searchForm = document.querySelector<HTMLFormElement>('#search')!;
 const pnInput = document.querySelector<HTMLInputElement>('#pn')!;
@@ -163,20 +175,84 @@ async function loadHealth(): Promise<void> {
       const rev = body.compendium.vintage.slice(0, 10);
       vintageEl.textContent =
         `compendium rev ${rev} · ${body.compendium.part_count.toLocaleString('en-US')} parts`;
-      return;
+    } else {
+      vintageEl.textContent = 'no compendium loaded yet';
+      if (!resultEl.innerHTML.includes('banner')) {
+        resultEl.innerHTML = `
+          <div class="banner">
+            No compendium is installed yet, so there is nothing to look up.
+            The data ships with your first release build — nothing is missing
+            on your machine.
+          </div>`;
+      }
     }
-    vintageEl.textContent = 'no compendium loaded yet';
-    resultEl.innerHTML = `
-      <div class="banner">
-        No compendium is installed yet, so there is nothing to look up.
-        The data ships with your first release build — nothing is missing
-        on your machine.
-      </div>`;
+    renderAuth(body.auth ?? null);
   } catch {
     vintageEl.textContent = 'local API unreachable';
     resultEl.innerHTML = `
       <div class="banner">The local lookup service is not answering. Restart the app;
         if the port is busy, set PARTSTABLE_API_PORT.</div>`;
+  }
+}
+
+// ---- account (FM-3) ----------------------------------------------------
+
+function renderAuth(auth: AuthStatus | null): void {
+  accountEl.textContent = auth?.signed_in && auth.email ? auth.email : '';
+
+  // Signed in (or state unknown): no banner — the free app never nags.
+  if (!auth || auth.signed_in) {
+    authEl.classList.add('hidden');
+    authEl.innerHTML = '';
+    return;
+  }
+
+  if (auth.signing_in) {
+    authEl.classList.remove('hidden');
+    authEl.innerHTML = `
+      <div class="banner auth">
+        Waiting for your browser… finish the sign-in there and this window
+        will update by itself.
+      </div>`;
+    return;
+  }
+
+  const error = auth.last_error
+    ? `<div class="auth-error">${escapeHTML(auth.last_error)}</div>`
+    : '';
+  authEl.classList.remove('hidden');
+  authEl.innerHTML = `
+    <div class="banner auth">
+      <div>
+        <strong>Optional: sign in to your free account</strong> — no card,
+        lookups work without it. Your key stays in this machine's keychain.
+      </div>
+      <button type="button" id="auth-login">Sign in — opens your browser</button>
+      ${error}
+    </div>`;
+  document.querySelector<HTMLButtonElement>('#auth-login')?.addEventListener('click', () => {
+    void startSignIn();
+  });
+}
+
+async function startSignIn(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/auth/login`, { method: 'POST' });
+  } catch {
+    authEl.innerHTML = '<div class="banner auth">The local service is not answering.</div>';
+    return;
+  }
+  const deadline = Date.now() + 5 * 60_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      const r = await fetch(`${API_BASE}/health`);
+      const body: Health = await r.json();
+      renderAuth(body.auth ?? null);
+      if (!body.auth?.signing_in) break;
+    } catch {
+      break;
+    }
   }
 }
 

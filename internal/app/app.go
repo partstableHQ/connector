@@ -11,6 +11,7 @@ import (
 
 	"github.com/partstableHQ/connector"
 	"github.com/partstableHQ/connector/internal/api"
+	"github.com/partstableHQ/connector/internal/auth"
 	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/lookup"
 	"github.com/partstableHQ/connector/internal/paths"
@@ -65,7 +66,8 @@ func startLocalAPI() func() {
 		fmt.Fprintln(os.Stderr, "partstable:", err)
 		return nil
 	}
-	srv := api.New(lookup.New(OpenCompendium()), version.Version(), port)
+	manager := auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore())
+	srv := api.New(lookup.New(OpenCompendium()), version.Version(), port, manager)
 	l, err := srv.Listen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "partstable: local API could not bind %s (%v) — the UI will show no data; free the port or set %s=<port>\n",

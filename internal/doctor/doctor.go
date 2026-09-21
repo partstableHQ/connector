@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/partstableHQ/connector/internal/auth"
 	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/paths"
 	"github.com/partstableHQ/connector/internal/store"
@@ -39,9 +40,26 @@ type Check struct {
 }
 
 // Options selects what to diagnose. DataDir empty means the default
-// location (internal/paths); tests pass an explicit directory.
+// location (internal/paths); tests pass an explicit directory. A nil
+// KeychainProbe means the real OS keychain.
 type Options struct {
-	DataDir string
+	DataDir       string
+	KeychainProbe func() KeychainState
+}
+
+// KeychainState is what the keychain check needs to know.
+type KeychainState struct {
+	Reachable bool
+	SignedIn  bool
+	Email     string
+}
+
+func realKeychainProbe() KeychainState {
+	info, found, err := (auth.KeyringStore{}).Load()
+	if err != nil {
+		return KeychainState{}
+	}
+	return KeychainState{Reachable: true, SignedIn: found, Email: info.Email}
 }
 
 // Summary aggregates the checks; Fail > 0 means the doctor exits nonzero.
@@ -123,9 +141,23 @@ func Run(ctx context.Context, opts Options, w io.Writer) (Summary, error) {
 		}
 	}
 
-	// 4-5. Subsystems on the roadmap — reported as skipped, never red.
+	// 4. Keychain: reachable, and holding a signed-in account key.
+	kcProbe := opts.KeychainProbe
+	if kcProbe == nil {
+		kcProbe = realKeychainProbe
+	}
+	kc := kcProbe()
+	switch {
+	case !kc.Reachable:
+		add("keychain", StatusWarn, "unavailable on this machine — headless setups can use `partstable login --api-key`")
+	case !kc.SignedIn:
+		add("keychain", StatusWarn, "not signed in — run `partstable login` (free, no card)")
+	default:
+		add("keychain", StatusOK, "signed in as %s — key in the OS keychain", kc.Email)
+	}
+
+	// 5. Update channel: still on the roadmap — reported as skipped, never red.
 	add("update channel", StatusSkip, "arrives with self-update (ROADMAP slice 6)")
-	add("keychain", StatusSkip, "arrives with account pairing (ROADMAP slice 5)")
 
 	write("\n")
 	for _, c := range sum.Checks {

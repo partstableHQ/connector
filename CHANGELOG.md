@@ -8,6 +8,13 @@ release time; this section is the format template.
 
 ### Added
 
+- Account sign-in (FM-3): browser OAuth+PKCE pairing with a loopback
+  redirect, key stored in the OS keychain (Windows Credential Manager /
+  Keychain / libsecret — never plain files), `partstable login --api-key`
+  paste fallback for headless machines, `partstable logout`, sign-in
+  banner and account display in the UI, and `POST /auth/login` /
+  `POST /auth/logout` on the local API. Sign-in is optional — the free app
+  never nags (FM-17). Wire protocol contract: `internal/auth/FLOW.md`.
 - Paste a list (FM-7, FM-8, FM-9): parse pasted text — lines, commas,
   semicolons, tabs, CSV, quantities as `x4` / `4x` / `qty 4` / `qty:4` /
   `qty=4`, and quote-email prose — into one sortable, filterable broker

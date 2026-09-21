@@ -64,6 +64,44 @@ body {
   color: #cbd5e1;
 }
 
+.account {
+  margin-left: auto;
+  margin-right: 1rem;
+  font-size: 0.75rem;
+  color: #93c5fd;
+}
+
+.banner.auth {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.banner.auth button {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: var(--pt-primary);
+  border: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.banner.auth button:hover {
+  background: var(--pt-primary-bright);
+}
+
+.auth-error {
+  width: 100%;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
 .content {
   max-width: 52rem;
   margin: 0 auto;

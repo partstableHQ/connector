@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/partstableHQ/connector/internal/auth"
 	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/export"
 	"github.com/partstableHQ/connector/internal/lookup"
@@ -49,15 +50,18 @@ func Port() (int, error) {
 // Server is the localhost API.
 type Server struct {
 	svc     *lookup.Service
+	authm   *auth.Manager
 	version string
 	addr    string
 	http    *http.Server
 }
 
-// New builds the API server. It does not bind; call Listen + Serve.
-func New(svc *lookup.Service, appVersion string, port int) *Server {
+// New builds the API server. authm may be nil (the auth verbs then report
+// unavailable). It does not bind; call Listen + Serve.
+func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager) *Server {
 	s := &Server{
 		svc:     svc,
+		authm:   authm,
 		version: appVersion,
 		addr:    fmt.Sprintf("127.0.0.1:%d", port),
 	}
@@ -68,6 +72,8 @@ func New(svc *lookup.Service, appVersion string, port int) *Server {
 	mux.HandleFunc("POST /bulk", s.handleBulk)
 	mux.HandleFunc("POST /paste", s.handlePaste)
 	mux.HandleFunc("POST /paste/export", s.handlePasteExport)
+	mux.HandleFunc("POST /auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /auth/logout", s.handleAuthLogout)
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -112,6 +118,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 type healthResponse struct {
 	AppVersion string           `json:"app_version"`
 	Compendium *compendium.Info `json:"compendium"`
+	Auth       *auth.Status     `json:"auth"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +127,33 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	respond(w, http.StatusOK, healthResponse{AppVersion: s.version, Compendium: info})
+	resp := healthResponse{AppVersion: s.version, Compendium: info}
+	if s.authm != nil {
+		st := s.authm.Status()
+		resp.Auth = &st
+	}
+	respond(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleAuthLogin(w http.ResponseWriter, _ *http.Request) {
+	if s.authm == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "account manager unavailable"})
+		return
+	}
+	started := s.authm.Login()
+	respond(w, http.StatusAccepted, map[string]bool{"started": started})
+}
+
+func (s *Server) handleAuthLogout(w http.ResponseWriter, _ *http.Request) {
+	if s.authm == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "account manager unavailable"})
+		return
+	}
+	if err := s.authm.Logout(); err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	respond(w, http.StatusOK, map[string]bool{"signed_in": false})
 }
 
 func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
