@@ -47,10 +47,10 @@ $ partstable lookup 95Y4812
 ## Quickstart
 
 ```bash
-# 1 · Install
+# 1 · Install — one binary, ~30 MB
 winget install PartsTable.Connector      # Windows
-# ...or brew install partstable / curl -fsSL partstable.com/install.sh
-# ...or docker run -d ghcr.io/partstable/connector
+# Linux and macOS one-liners publish here with the first release
+# (exact shipped commands only — never placeholders)
 
 # 2 · Sign in  (free account, no credit card)
 partstable login
