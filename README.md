@@ -25,7 +25,7 @@ industry's scattered part knowledge into one place: OEM data, government part
 registries, broker-verified lists — assembled, described, and cited. The app
 puts it on your computer.
 
-Measured 2026-09-20 and climbing nightly: **187,147 parts · 312,913
+Measured 2026-09-20 and climbing nightly: **187,147 calibrated parts · 312,913
 cross-references · 3,777 machine models across 36 brands.**
 
 ```bash
@@ -82,9 +82,9 @@ Pick any covered machine — 3,777 models across 36 brands — and get its
 complete parts list: every component with its part number, description,
 substitutions, and the machine's end-of-life clock. Ask the reverse question
 — "what does this part fit?" — and get every machine it serves, each match
-carrying its source and trust tier. Every source carries a trust tier with
-its measured precision; we publish the number and its sample size, per claim
-type, and never round up.
+carrying its source and trust tier. Every part number is calibrated: each
+source carries a trust tier with its measured precision; we publish the
+number and its sample size, per claim type, and never round up.
 
 ## How it stays current
 
