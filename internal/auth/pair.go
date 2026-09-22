@@ -121,12 +121,15 @@ func Pair(ctx context.Context, cfg Config, openBrowser func(string) error, progr
 		url.QueryEscape(state),
 		url.QueryEscape(challenge),
 	)
-	say("Opening your browser to sign in — finish there and come back here.")
+	say("Opening the sign-in window…")
 	if openBrowser == nil {
 		openBrowser = defaultBrowserOpener
 	}
 	if err := openBrowser(authURL); err != nil {
-		return KeyInfo{}, ErrNoBrowser
+		if errors.Is(err, ErrNoBrowser) {
+			return KeyInfo{}, err
+		}
+		return KeyInfo{}, fmt.Errorf("could not open the sign-in page: %w", err)
 	}
 
 	var code string

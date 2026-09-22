@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/partstableHQ/connector"
 	"github.com/partstableHQ/connector/internal/api"
@@ -85,8 +86,9 @@ func startLocalAPI() func() {
 	authManager := auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore())
 
 	// Sign-in opens INSIDE the app — a focused window, impossible to lose
-	// behind browser windows (CEO beta finding 2026-09-22). Headless runs
-	// keep the system-browser fallback.
+	// behind browser windows (CEO beta finding 2026-09-22). A failed
+	// window open surfaces as a sign-in error; it NEVER falls back to
+	// Chrome. (Headless runs have no opener wired and use the fallback.)
 	var signInMu sync.Mutex
 	var signInWin *application.WebviewWindow
 	authManager.OpenSignInPage = func(u string) (func(), error) {
@@ -96,8 +98,10 @@ func startLocalAPI() func() {
 			signInWin.Close()
 			signInWin = nil
 		}
+		// Unique name per attempt: a just-closed window's name may still
+		// be deregistering, and a duplicate would fail the create.
 		signInWin = application.Get().Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:  "signin",
+			Name:  fmt.Sprintf("signin-%d", time.Now().UnixNano()),
 			Title: "PartsTable — Sign in",
 			URL:   u,
 			Width: 560, Height: 720,

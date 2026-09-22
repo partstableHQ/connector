@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/pkg/browser"
@@ -83,24 +84,26 @@ func (m *Manager) Login() bool {
 	m.mu.Unlock()
 
 	go func() {
-		// Prefer the in-app sign-in window (always visible, focused);
-		// fall back to the system browser when no page opener is wired
-		// or it fails.
+		// The in-app sign-in window is the primary path (always visible,
+		// focused). When an opener IS wired but fails, the error surfaces
+		// in the UI — never a silent fallback to an invisible browser tab.
 		opener := func(pageURL string) error {
 			m.mu.Lock()
 			openPage, fallback := m.OpenSignInPage, m.openBrowser
 			m.mu.Unlock()
 			if openPage != nil {
-				if closePage, err := openPage(pageURL); err == nil {
-					m.mu.Lock()
-					if attempt == m.attempt {
-						m.closePage = closePage
-					} else if closePage != nil {
-						closePage() // stale attempt's page — close it now
-					}
-					m.mu.Unlock()
-					return nil
+				closePage, err := openPage(pageURL)
+				if err != nil {
+					return fmt.Errorf("sign-in window failed: %w", err)
 				}
+				m.mu.Lock()
+				if attempt == m.attempt {
+					m.closePage = closePage
+				} else if closePage != nil {
+					closePage() // stale attempt's page — close it now
+				}
+				m.mu.Unlock()
+				return nil
 			}
 			return fallback(pageURL)
 		}
