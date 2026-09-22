@@ -1,0 +1,13 @@
+[Unit]
+Description=PartsTable account service
+After=network.target
+
+[Service]
+User=root
+Environment=ACCOUNTD_ADDR=127.0.0.1:8942
+Environment=ACCOUNTD_DB=/var/lib/accountd/accounts.db
+ExecStart=/usr/local/bin/accountd
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

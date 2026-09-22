@@ -1,5 +1,16 @@
 # Deploying accountd (the sign-in service)
 
+**DEPLOYED 2026-09-22 with CEO approval** — live at
+`https://partstable.com/oauth/*`, verified end-to-end: the real Connector
+pairing (auth.Pair) completed against production from the CEO's machine
+(account `beta@partstable.com`, key issued `pt_gwzMJ…`). Re-verify any
+time with the opt-in production smoke:
+
+```
+PROD_EMAIL=... PROD_PASSWORD=... \
+  go test -tags prodsmoke -run TestProdSignInSmoke ./internal/accounts/ -v
+```
+
 Deployment is **pending CEO approval** — it adds a public credential
 endpoint to partstable.com. Everything is built and tested (see
 internal/accounts: the real Connector pairing was run against this
