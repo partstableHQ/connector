@@ -41,6 +41,10 @@ Usage:
 `
 
 func main() {
+	// The exe is a windowsgui-subsystem binary (no console flash for the
+	// desktop app); CLI verbs launched from a terminal reattach first.
+	app.AttachConsole()
+
 	args := os.Args[1:]
 	if len(args) == 0 {
 		app.Run()

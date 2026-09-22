@@ -29,6 +29,7 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
+      - -H=windowsgui
       - -X github.com/partstableHQ/connector/internal/version.version={{.Version}}
       - -X github.com/partstableHQ/connector/internal/version.commit={{.FullCommit}}
 

@@ -109,6 +109,11 @@ func Pair(ctx context.Context, cfg Config, openBrowser func(string) error, progr
 	<-serving
 	defer func() { _ = server.Close() }()
 
+	say("Checking the account service…")
+	if err := preflight(ctx, cfg.AuthorizeURL); err != nil {
+		return KeyInfo{}, err
+	}
+
 	authURL := fmt.Sprintf("%s?response_type=code&client_id=%s&redirect_uri=%s&state=%s&code_challenge=%s&code_challenge_method=S256&scope=api",
 		cfg.AuthorizeURL,
 		url.QueryEscape(cfg.ClientID),
@@ -142,6 +147,33 @@ func Pair(ctx context.Context, cfg Config, openBrowser func(string) error, progr
 	}
 	say(fmt.Sprintf("Signed in as %s.", info.Email))
 	return info, nil
+}
+
+// preflight verifies the account service actually answers before the app
+// opens a browser — a dead route must fail in one second with the truth,
+// never strand a user on an error page while the app waits five minutes.
+func preflight(ctx context.Context, authorizeURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authorizeURL, nil)
+	if err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse // any redirect means "someone is home"
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.New("the PartsTable account service is unreachable — check your connection and try again later")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 500 {
+		// A reverse proxy answering 5xx means the route/deployment is not
+		// live — e.g. a tunnel pointing at nothing.
+		return errors.New("the PartsTable account service isn't live yet — sign-in arrives with the public release")
+	}
+	return nil
 }
 
 // exchange trades the authorization code (plus PKCE verifier) for the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,11 @@ func httpGet(u string) (*http.Response, error) {
 func cfgOf(f *fakeidp.Fake) Config {
 	c := f.Config()
 	return Config{AuthorizeURL: c.AuthorizeURL, TokenURL: c.TokenURL, ClientID: c.ClientID}
+}
+
+// cfgOfFakeURL builds a config around a bare test-server URL.
+func cfgOfFakeURL(base string) Config {
+	return Config{AuthorizeURL: base + "/oauth/authorize", TokenURL: base + "/oauth/token", ClientID: ClientID}
 }
 
 // The happy path: browser opens, authorize redirects with the code, the
@@ -82,6 +88,26 @@ func TestPairSurfacesTokenError(t *testing.T) {
 		func(u string) error { go func() { _, _ = httpGet(u) }(); return nil }, nil)
 	if err == nil || !strings.Contains(err.Error(), "account locked") {
 		t.Fatalf("error must surface the server's human message: %v", err)
+	}
+}
+
+// A dead account-service route (HTTP 5xx, e.g. a tunnel pointing at
+// nothing) must fail before the browser ever opens — CEO finding
+// 2026-09-21: sign-in used to strand users on an error page for minutes.
+func TestPairPreflightFailsFast(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	opened := 0
+	_, err := Pair(context.Background(), cfgOfFakeURL(srv.URL),
+		func(string) error { opened++; return nil }, nil)
+	if err == nil || !strings.Contains(err.Error(), "isn't live yet") {
+		t.Fatalf("err = %v, want the honest not-live message", err)
+	}
+	if opened != 0 {
+		t.Fatal("browser must not open when the account service is down")
 	}
 }
 
