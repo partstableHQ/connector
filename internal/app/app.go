@@ -45,6 +45,15 @@ func Run() {
 		},
 	})
 
+	// A real menu bar with an explicit, keyboard-driven exit — closing
+	// like a proper Windows citizen (CEO finding 2026-09-21). The X
+	// button already quits the process.
+	fileMenu := application.NewMenu().AddSubmenu("File")
+	fileMenu.Add("Exit").
+		SetAccelerator("Ctrl+Q").
+		OnClick(func(*application.Context) { application.Get().Quit() })
+	application.Get().Menu.SetApplicationMenu(fileMenu)
+
 	application.Get().Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      "main",
 		Title:     "PartsTable Connector " + version.Version(),
