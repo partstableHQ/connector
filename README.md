@@ -4,9 +4,7 @@
 
 # PartsTable Connector
 
-A free, open-source desktop app for the secondary-market IT industry —
-the parts connector that links your ERP, your CRM, and your tools to a
-calibrated parts reference.
+A free, open-source desktop app for the secondary-market IT industry.
 
 Look up any part. Paste a whole list. Build the sheet for any machine.
 Get the description, the substitutes, what it fits — and the source of every fact.
