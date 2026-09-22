@@ -213,8 +213,8 @@ var formTmpl = template.Must(template.New("authorize").Parse(
 <input type="hidden" name="challenge" value="{{.Values.Challenge}}">
 <input type="hidden" name="redirect_uri" value="{{.Values.RedirectURI}}">
 <input type="hidden" name="client_id" value="{{.Values.ClientID}}">
-<p><input style="width:100%;padding:.6rem;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box" type="email" name="email" placeholder="you@company.com" required autofocus value="{{.Values.Email}}"></p>
-<p><input style="width:100%;padding:.6rem;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box" type="password" name="password" placeholder="Password (8+ characters)" required minlength="8"></p>
+<p><input style="width:100%;padding:.6rem;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box" type="email" name="email" autocomplete="username" placeholder="you@company.com" required autofocus value="{{.Values.Email}}"></p>
+<p><input style="width:100%;padding:.6rem;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box" type="password" name="password" autocomplete="new-password" placeholder="Password (8+ characters)" required minlength="8"></p>
 <p><button style="width:100%;padding:.6rem;background:#0055dd;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer" type="submit">Sign in or create your free account</button></p>
 <p style="color:#64748b;font-size:.8rem">New here? This one form creates your account. PartsTable Connector never sees your password — only this page does.</p>
 </form>
