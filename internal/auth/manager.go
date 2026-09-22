@@ -18,7 +18,13 @@ type Status struct {
 // Manager owns the account state for the running app: status queries,
 // browser sign-in launches, and sign-out. It is safe for concurrent use.
 type Manager struct {
-	mu          sync.Mutex
+	mu sync.Mutex
+	// OpenSignInPage, when set, opens the sign-in page INSIDE the app (a
+	// focused window) and returns a func that closes it. The GUI sets
+	// this; headless runs leave it nil and use the system browser.
+	OpenSignInPage func(url string) (closePage func(), err error)
+	// closePage is the closer of the current attempt's sign-in page.
+	closePage   func()
 	signingIn   bool
 	attempt     int
 	lastError   string
@@ -71,12 +77,34 @@ func (m *Manager) Login() bool {
 	m.lastError = ""
 	m.attempt++
 	attempt := m.attempt
-	cfg, store, opener := m.cfg, m.store, m.openBrowser
+	cfg, store := m.cfg, m.store
 	ctx, cancel := context.WithTimeout(context.Background(), PairTimeout)
 	m.cancel = cancel
 	m.mu.Unlock()
 
 	go func() {
+		// Prefer the in-app sign-in window (always visible, focused);
+		// fall back to the system browser when no page opener is wired
+		// or it fails.
+		opener := func(pageURL string) error {
+			m.mu.Lock()
+			openPage, fallback := m.OpenSignInPage, m.openBrowser
+			m.mu.Unlock()
+			if openPage != nil {
+				if closePage, err := openPage(pageURL); err == nil {
+					m.mu.Lock()
+					if attempt == m.attempt {
+						m.closePage = closePage
+					} else if closePage != nil {
+						closePage() // stale attempt's page — close it now
+					}
+					m.mu.Unlock()
+					return nil
+				}
+			}
+			return fallback(pageURL)
+		}
+
 		info, err := Pair(ctx, cfg, opener, nil)
 		if err == nil {
 			err = store.Save(info)
@@ -89,6 +117,13 @@ func (m *Manager) Login() bool {
 			m.signingIn = false
 			if err != nil {
 				m.lastError = err.Error()
+			}
+			if m.closePage != nil {
+				// The attempt is over (success or failure) — the sign-in
+				// page has nothing left to say. Close it.
+				closePage := m.closePage
+				m.closePage = nil
+				go closePage()
 			}
 		}
 		m.mu.Unlock()

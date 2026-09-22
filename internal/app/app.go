@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/partstableHQ/connector"
 	"github.com/partstableHQ/connector/internal/api"
@@ -82,6 +83,35 @@ func startLocalAPI() func() {
 	// (BUILD-GUIDE §1); the update channel needs it for the install id
 	// and the telemetry opt-out setting.
 	authManager := auth.NewManager(auth.LoadConfig(), auth.NewKeyringStore())
+
+	// Sign-in opens INSIDE the app — a focused window, impossible to lose
+	// behind browser windows (CEO beta finding 2026-09-22). Headless runs
+	// keep the system-browser fallback.
+	var signInMu sync.Mutex
+	var signInWin *application.WebviewWindow
+	authManager.OpenSignInPage = func(u string) (func(), error) {
+		signInMu.Lock()
+		defer signInMu.Unlock()
+		if signInWin != nil {
+			signInWin.Close()
+			signInWin = nil
+		}
+		signInWin = application.Get().Window.NewWithOptions(application.WebviewWindowOptions{
+			Name:  "signin",
+			Title: "PartsTable — Sign in",
+			URL:   u,
+			Width: 560, Height: 720,
+		})
+		return func() {
+			signInMu.Lock()
+			defer signInMu.Unlock()
+			if signInWin != nil {
+				signInWin.Close()
+				signInWin = nil
+			}
+		}, nil
+	}
+
 	updateManager := update.NewManager(version.Version(), OpenAppDB())
 	srv := api.New(lookup.New(OpenCompendium()), version.Version(), port, authManager, updateManager)
 	// Outbound links open in the system browser, never inside the app
