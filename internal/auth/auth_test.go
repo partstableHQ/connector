@@ -176,6 +176,11 @@ func TestManagerLifecycle(t *testing.T) {
 	if !m.Login() {
 		t.Fatal("first login must start")
 	}
+	// Re-clicking Sign in must RESTART, never dead-end with started=false
+	// (the CEO beta finding: a stuck attempt swallowed every re-click).
+	if !m.Login() {
+		t.Fatal("re-click during an in-flight attempt must restart it")
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if st := m.Status(); st.SignedIn {

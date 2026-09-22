@@ -20,7 +20,9 @@ type Status struct {
 type Manager struct {
 	mu          sync.Mutex
 	signingIn   bool
+	attempt     int
 	lastError   string
+	cancel      context.CancelFunc
 	cfg         Config
 	store       Store
 	openBrowser func(string) error
@@ -55,40 +57,54 @@ func (m *Manager) Status() Status {
 	return st
 }
 
-// Login starts a browser sign-in in the background and reports whether it
-// was started (false when one is already in flight).
+// Login starts a browser sign-in and reports whether a fresh attempt is
+// now running. If an attempt is already waiting — say the password was
+// mistyped and the tab got closed — it is cancelled and a new one starts
+// immediately: clicking Sign in must always act, never dead-end.
 func (m *Manager) Login() bool {
 	m.mu.Lock()
-	if m.signingIn {
-		m.mu.Unlock()
-		return false
+	if m.cancel != nil {
+		m.cancel() // stop any in-flight attempt
+		m.cancel = nil
 	}
 	m.signingIn = true
 	m.lastError = ""
+	m.attempt++
+	attempt := m.attempt
 	cfg, store, opener := m.cfg, m.store, m.openBrowser
+	ctx, cancel := context.WithTimeout(context.Background(), PairTimeout)
+	m.cancel = cancel
 	m.mu.Unlock()
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), PairTimeout)
-		defer cancel()
 		info, err := Pair(ctx, cfg, opener, nil)
 		if err == nil {
 			err = store.Save(info)
 		}
+		cancel()
 		m.mu.Lock()
-		m.signingIn = false
-		if err != nil {
-			m.lastError = err.Error()
+		// Only the CURRENT attempt may report: a cancelled older goroutine
+		// must not overwrite a newer attempt's state.
+		if attempt == m.attempt {
+			m.signingIn = false
+			if err != nil {
+				m.lastError = err.Error()
+			}
 		}
 		m.mu.Unlock()
 	}()
 	return true
 }
 
-// Logout removes the stored credential from this machine.
+// Logout removes the stored credential from this machine and cancels any
+// in-flight sign-in.
 func (m *Manager) Logout() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
 	m.lastError = ""
+	m.mu.Unlock()
 	return m.store.Clear()
 }
