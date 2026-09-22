@@ -4,7 +4,9 @@
 
 # PartsTable Connector
 
-A free, open-source desktop app for the secondary-market IT industry.
+A free, open-source desktop app for the secondary-market IT industry —
+the parts connector that links your ERP, your CRM, and your tools to a
+calibrated parts reference.
 
 Look up any part. Paste a whole list. Build the sheet for any machine.
 Get the description, the substitutes, what it fits — and the source of every fact.
@@ -80,6 +82,18 @@ substitutions, and the machine's end-of-life clock. Ask the reverse question
 carrying its source and trust tier. Every part number is calibrated: each
 source carries a trust tier with its measured precision; we publish the
 number and its sample size, per claim type, and never round up.
+
+## The community is in the app
+
+The reference gets sharper every time someone uses it. Every result asks
+"did we get it right?" (👍/👎). Brokers leave notes on part numbers —
+"this MPN has fake revs in the gray market" — and the live ticker shows
+the trade at work: verifications landing, notes added, stock listed.
+Accuracy earns verifier rank; rank earns trust, and it can decay. No
+streaks, no point games — a broker's rank has to mean something. What the
+trade verifies this week is what trends. Your credentials and your
+searches stay yours; community features are opt-in, action-based, and
+never built from what you look up.
 
 ## How it stays current
 
