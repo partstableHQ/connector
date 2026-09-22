@@ -255,8 +255,8 @@ function renderAuth(auth: AuthStatus | null): void {
     authEl.classList.remove('hidden');
     authEl.innerHTML = `
       <div class="banner auth">
-        Waiting for your browser… finish the sign-in there and this window
-        will update by itself.
+        A sign-in window just opened on top of this one — finish signing in
+        there. This screen updates itself when you're done.
       </div>`;
     return;
   }
