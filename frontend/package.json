@@ -5,16 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.2",
-    "vite": "^7.1.0"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
-    "@tanstack/table-core": "^8.21.3"
+    "ag-grid-community": "^33.1.1",
+    "ag-grid-react": "^33.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0"
   }
 }
