@@ -182,6 +182,15 @@ app.innerHTML = `
         <p id="settings-update-note" class="muted"></p>
       </div>
       <div class="card settings-card">
+        <h3>Appearance</h3>
+        <label class="toggle">
+          <input type="checkbox" id="settings-dark" />
+          <span>
+            <strong>Dark mode</strong>
+          </span>
+        </label>
+      </div>
+      <div class="card settings-card">
         <h3>Privacy</h3>
         <label class="toggle">
           <input type="checkbox" id="settings-telemetry" />
@@ -657,6 +666,7 @@ const settingsUpdateNote = document.querySelector<HTMLElement>('#settings-update
 const settingsCheck = document.querySelector<HTMLButtonElement>('#settings-check')!;
 const settingsApply = document.querySelector<HTMLButtonElement>('#settings-apply')!;
 const settingsTelemetry = document.querySelector<HTMLInputElement>('#settings-telemetry')!;
+const settingsDark = document.querySelector<HTMLInputElement>('#settings-dark')!;
 
 interface UpdateSummary {
   current: string;
@@ -666,6 +676,7 @@ interface UpdateSummary {
 }
 
 function refreshSettings(): void {
+  applyTheme();
   void (async () => {
     try {
       const [hRes, sRes] = await Promise.all([
@@ -794,5 +805,22 @@ moreLink.addEventListener('click', (e) => {
     }
   })();
 });
+
+// ---- theme (FM-18: light/dark, stored locally) --------------------------
+
+function applyTheme(): void {
+  const dark = localStorage.getItem('pt-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const cb = document.querySelector<HTMLInputElement>('#settings-dark');
+  if (cb) cb.checked = dark;
+}
+
+settingsDark.addEventListener('change', () => {
+  localStorage.setItem('pt-theme', settingsDark.checked ? 'dark' : 'light');
+  applyTheme();
+});
+
+// Apply theme before first paint to avoid a flash.
+applyTheme();
 
 void loadHealth();
