@@ -83,6 +83,7 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /lookup", s.handleLookup)
+	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /xref", s.handleXref)
 	mux.HandleFunc("POST /bulk", s.handleBulk)
 	mux.HandleFunc("POST /paste", s.handlePaste)
@@ -260,6 +261,24 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.svc.Lookup(r.Context(), pn)
 	respondResult(w, res, err)
+}
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(q) < 2 {
+		respond(w, http.StatusOK, map[string]any{"results": []lookup.Part{}})
+		return
+	}
+	results, err := s.svc.Search(r.Context(), q, 8)
+	if errors.Is(err, lookup.ErrNoCompendium) {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	respond(w, http.StatusOK, map[string]any{"results": results})
 }
 
 func (s *Server) handleXref(w http.ResponseWriter, r *http.Request) {

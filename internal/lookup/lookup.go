@@ -148,6 +148,41 @@ func (s *Service) Xrefs(ctx context.Context, pn string) (Result, error) {
 	return res, nil
 }
 
+// Search returns parts whose pn, display_pn, or description starts with
+// or contains the normalized query — the typeahead feed for the UI
+// (FM-5: instant feedback as you type). Results are capped; the query
+// must be at least 2 characters to avoid a full-table scan.
+func (s *Service) Search(ctx context.Context, query string, limit int) ([]Part, error) {
+	if s.db == nil {
+		return nil, ErrNoCompendium
+	}
+	norm := Normalize(query)
+	if len(norm) < 2 {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 8
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pn, display_pn, description, category FROM parts
+		WHERE pn LIKE ? || '%' OR description LIKE '%' || ? || '%'
+		ORDER BY CASE WHEN pn LIKE ? || '%' THEN 0 ELSE 1 END, pn
+		LIMIT ?`, norm, strings.ToUpper(norm), norm, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search %s: %w", norm, err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []Part{}
+	for rows.Next() {
+		var p Part
+		if err := rows.Scan(&p.PN, &p.DisplayPN, &p.Description, &p.Category); err != nil {
+			return nil, fmt.Errorf("search %s: %w", norm, err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // Health reports the loaded compendium's identity and vintage, or nil when
 // nothing is loaded — the honest-staleness display (FM-10) reads this.
 func (s *Service) Health(ctx context.Context) (*compendium.Info, error) {

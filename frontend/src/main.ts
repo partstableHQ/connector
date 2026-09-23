@@ -137,17 +137,31 @@ app.innerHTML = `
     </nav>
 
     <section id="view-lookup">
-      <form class="search" id="search">
-        <input
-          id="pn"
-          type="text"
-          placeholder="Look up a part number — e.g. 02CL197"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button type="submit">Look up</button>
-      </form>
-      <p class="hint">Answers come from your own machine. Every fact carries its source.</p>
+      <div class="search-wrap">
+        <div class="sbox" id="sbox">
+          <input
+            id="pn"
+            type="text"
+            placeholder="9TMRF"
+            autocomplete="off"
+            spellcheck="false"
+            role="combobox"
+            aria-expanded="false"
+            aria-autocomplete="list"
+            aria-label="Part number"
+          />
+          <span class="kbd" id="kbd-hint">Ctrl K</span>
+        </div>
+        <button type="button" id="lookup-btn">Look up</button>
+      </div>
+      <div class="lookup-pop" id="lookup-pop" role="listbox" aria-hidden="true"></div>
+      <div class="chip-row" id="chip-row">
+        <span class="chip-label">Try:</span>
+        <button type="button" class="ex-chip mono" data-q="02CL197">02CL197</button>
+        <button type="button" class="ex-chip mono" data-q="4X70J67435">4X70J67435</button>
+        <button type="button" class="ex-chip mono" data-q="SN730SDB512GB">SN730SDB512GB</button>
+      </div>
+      <p class="statrow" id="statrow">Type 2+ characters to search your local compendium.</p>
       <section id="result" aria-live="polite"></section>
     </section>
 
@@ -215,8 +229,196 @@ const vintageEl = document.querySelector<HTMLSpanElement>('#vintage')!;
 const accountEl = document.querySelector<HTMLSpanElement>('#account')!;
 const authEl = document.querySelector<HTMLElement>('#auth')!;
 const resultEl = document.querySelector<HTMLElement>('#result')!;
-const searchForm = document.querySelector<HTMLFormElement>('#search')!;
 const pnInput = document.querySelector<HTMLInputElement>('#pn')!;
+const lookupPop = document.querySelector<HTMLElement>('#lookup-pop')!;
+const statrow = document.querySelector<HTMLElement>('#statrow')!;
+const lookupBtn = document.querySelector<HTMLButtonElement>('#lookup-btn')!;
+
+// ---- typeahead combobox (FM-5: instant search feedback) -----------------
+
+interface SearchHit {
+  pn: string;
+  display_pn: string;
+  description: string;
+  category?: string;
+}
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let abortCtrl: AbortController | null = null;
+let seqGuard = 0;
+let activeIdx = -1;
+let popItems: SearchHit[] = [];
+
+function highlightMatch(text: string, query: string): string {
+  const norm = query.toUpperCase();
+  const idx = text.toUpperCase().indexOf(norm);
+  if (idx < 0) return escapeHTML(text);
+  return (
+    escapeHTML(text.slice(0, idx)) +
+    '<strong>' + escapeHTML(text.slice(idx, idx + norm.length)) + '</strong>' +
+    escapeHTML(text.slice(idx + norm.length))
+  );
+}
+
+function renderPop(hitList: SearchHit[], query: string): void {
+  if (hitList.length === 0) {
+    lookupPop.innerHTML = '<div class="pop-empty">No match in the documented set.</div>';
+    lookupPop.classList.add('open');
+    pnInput.setAttribute('aria-expanded', 'true');
+    return;
+  }
+  activeIdx = -1;
+  lookupPop.innerHTML = hitList
+    .map((h, i) =>
+      `<div class="pop-row" data-idx="${i}" role="option" aria-selected="false">` +
+      `<span class="mono pop-pn">${highlightMatch(h.pn, query)}</span>` +
+      `<span class="pop-desc">${escapeHTML(h.description)}</span>` +
+      `</div>`
+    ).join('');
+  lookupPop.classList.add('open');
+  pnInput.setAttribute('aria-expanded', 'true');
+  for (const row of lookupPop.querySelectorAll('.pop-row')) {
+    row.addEventListener('click', () => {
+      const idx = parseInt(row.getAttribute('data-idx') ?? '0', 10);
+      selectHit(idx);
+    });
+  }
+}
+
+function selectHit(idx: number): void {
+  if (idx < 0 || idx >= popItems.length) return;
+  activeIdx = idx;
+  const hit = popItems[idx];
+  pnInput.value = hit.pn;
+  dismissPop();
+  void lookupOne(hit.pn);
+}
+
+function dismissPop(): void {
+  lookupPop.classList.remove('open');
+  lookupPop.innerHTML = '';
+  pnInput.setAttribute('aria-expanded', 'false');
+  activeIdx = -1;
+}
+
+function typeahead(): void {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  const q = pnInput.value.trim();
+  if (q.length < 2) {
+    dismissPop();
+    statrow.textContent = 'Type 2+ characters to search your local compendium.';
+    return;
+  }
+  debounceTimer = setTimeout(async () => {
+    if (abortCtrl) abortCtrl.abort();
+    abortCtrl = new AbortController();
+    const mySeq = ++seqGuard;
+    statrow.textContent = 'searching…';
+    try {
+      const r = await fetch(`${API_BASE}/search?q=${encodeURIComponent(q)}`, {
+        signal: abortCtrl.signal,
+      });
+      if (mySeq !== seqGuard) return; // stale response
+      const body = await r.json();
+      if (!r.ok) {
+        statrow.textContent = body.error ?? 'search error';
+        return;
+      }
+      popItems = body.results as SearchHit[];
+      renderPop(popItems, q);
+      statrow.textContent =
+        popItems.length > 0
+          ? `${popItems.length} match${popItems.length === 1 ? '' : 'es'} — Enter or click to look up`
+          : '0 results — no match in the documented set';
+    } catch (e) {
+      if (mySeq !== seqGuard) return;
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      statrow.textContent = 'search hiccup — try again';
+    }
+  }, 150); // local DB: 150ms feels instant
+}
+
+pnInput.addEventListener('input', () => typeahead());
+
+pnInput.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (!lookupPop.classList.contains('open') || popItems.length === 0) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const pn = pnInput.value.trim();
+      if (pn.length > 0) void lookupOne(pn);
+    }
+    return;
+  }
+  const rows = lookupPop.querySelectorAll('.pop-row');
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, rows.length - 1);
+      updateActive(rows);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+      updateActive(rows);
+      break;
+    case 'Enter':
+      e.preventDefault();
+      if (activeIdx >= 0) selectHit(activeIdx);
+      else {
+        dismissPop();
+        const pn = pnInput.value.trim();
+        if (pn.length > 0) void lookupOne(pn);
+      }
+      break;
+    case 'Escape':
+      dismissPop();
+      break;
+  }
+});
+
+function updateActive(rows: NodeList): void {
+  rows.forEach((r, i) => {
+    const el = r as HTMLElement;
+    el.classList.toggle('active', i === activeIdx);
+    el.setAttribute('aria-selected', String(i === activeIdx));
+  });
+}
+
+document.addEventListener('click', (e: MouseEvent) => {
+  const target = e.target as HTMLElement;
+  if (!target.closest('#sbox') && !target.closest('#lookup-pop')) {
+    dismissPop();
+  }
+});
+
+// Global shortcut: Ctrl+K or / to focus lookup.
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    document.querySelector('.tab[data-view="lookup"]')?.dispatchEvent(new Event('click'));
+    pnInput.focus();
+    pnInput.select();
+  }
+  if (e.key === '/' && document.activeElement !== pnInput) {
+    e.preventDefault();
+    document.querySelector('.tab[data-view="lookup"]')?.dispatchEvent(new Event('click'));
+    pnInput.focus();
+  }
+});
+
+lookupBtn.addEventListener('click', () => {
+  const pn = pnInput.value.trim();
+  if (pn.length > 0) void lookupOne(pn);
+});
+
+// Example chips: click to fill and auto-run.
+for (const chip of document.querySelectorAll<HTMLButtonElement>('.ex-chip')) {
+  chip.addEventListener('click', () => {
+    pnInput.value = chip.dataset.q ?? '';
+    dismissPop();
+    void lookupOne(pnInput.value);
+  });
+}
 
 // ---- health (the honest vintage, FM-10) -------------------------------
 
@@ -324,12 +526,6 @@ for (const t of tabs) {
 }
 
 // ---- single lookup ------------------------------------------------------
-
-searchForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const pn = pnInput.value.trim();
-  if (pn.length > 0) void lookupOne(pn);
-});
 
 async function lookupOne(pn: string): Promise<void> {
   resultEl.innerHTML = `<div class="muted">Looking up ${escapeHTML(pn)}…</div>`;

@@ -133,6 +133,10 @@ body {
   padding: 0.6rem 0.75rem;
 }
 
+#view-lookup {
+  position: relative;
+}
+
 /* ---- tabs: compact underline ---------------------------------------- */
 
 .tabs {
@@ -169,37 +173,54 @@ body {
   font-size: 12.5px;
 }
 
-.hint {
-  color: var(--pt-text-muted);
-  font-size: 11px;
-  margin: 0.3rem 0 0.6rem;
-}
+/* ---- single lookup: typeahead combobox -------------------------------- */
 
-/* ---- single lookup --------------------------------------------------- */
-
-.search {
+.search-wrap {
   display: flex;
   gap: 0.4rem;
 }
 
-.search input {
+.sbox {
   flex: 1;
-  padding: 0.4rem 0.6rem;
-  font-size: 13px;
-  font-family: inherit;
+  display: flex;
+  align-items: center;
+  position: relative;
   border: 1px solid var(--pt-border);
   border-radius: 4px;
   background: var(--pt-surface);
-  color: var(--pt-text);
 }
 
-.search input:focus {
-  outline: none;
+.sbox:focus-within {
   border-color: var(--pt-primary-bright);
   box-shadow: 0 0 0 1px var(--pt-primary-bright);
 }
 
-.search button {
+#pn {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  font-size: 14px;
+  font-family: 'Geist Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--pt-text);
+}
+
+.kbd {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--pt-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  color: var(--pt-text-muted);
+  background: var(--pt-surface-alt);
+  white-space: nowrap;
+  margin-right: 0.5rem;
+  pointer-events: none;
+}
+
+.search-wrap button {
   padding: 0.4rem 0.8rem;
   font-size: 12.5px;
   font-weight: 600;
@@ -211,8 +232,98 @@ body {
   font-family: inherit;
 }
 
-.search button:hover {
+.search-wrap button:hover {
   background: var(--pt-primary-bright);
+}
+
+.lookup-pop {
+  display: none;
+  position: absolute;
+  z-index: 100;
+  left: 0.75rem;
+  right: 0.75rem;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border-strong);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+}
+
+.lookup-pop.open {
+  display: block;
+}
+
+.pop-row {
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.pop-row:hover, .pop-row.active {
+  background: var(--pt-row-hover);
+}
+
+.pop-pn {
+  font-weight: 700;
+  white-space: nowrap;
+  min-width: 130px;
+}
+
+.pop-pn strong {
+  color: var(--pt-primary);
+}
+
+.pop-desc {
+  color: var(--pt-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.pop-empty {
+  padding: 0.5rem 0.6rem;
+  color: var(--pt-text-muted);
+  font-size: 12px;
+}
+
+.chip-row {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+
+.chip-label {
+  font-size: 11px;
+  color: var(--pt-text-muted);
+}
+
+.ex-chip {
+  padding: 0.1rem 0.5rem;
+  font-size: 11.5px;
+  border: 1px solid var(--pt-border);
+  border-radius: 3px;
+  background: var(--pt-surface);
+  color: var(--pt-text);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.ex-chip:hover {
+  border-color: var(--pt-primary);
+  color: var(--pt-primary);
+}
+
+.statrow {
+  font-size: 11.5px;
+  color: var(--pt-text-muted);
+  margin: 0.3rem 0 0.5rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .card {
