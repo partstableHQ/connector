@@ -7,14 +7,13 @@ import {
   type SortingState,
   type VisibilityState,
 } from '@tanstack/table-core';
-// Geist typography (FM-18), bundled locally — lookups work offline and so
-// do the fonts. SIL OFL license, ships with the app.
-import '@fontsource/geist-sans/400.css';
-import '@fontsource/geist-sans/500.css';
-import '@fontsource/geist-sans/600.css';
-import '@fontsource/geist-sans/700.css';
-import '@fontsource/geist-mono/400.css';
-import '@fontsource/geist-mono/500.css';
+// Production fonts (IBM Plex Sans + JetBrains Mono), bundled locally.
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-sans/600.css';
+import '@fontsource/ibm-plex-sans/700.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/500.css';
 import './style.css';
 
 // The localhost API (FM-15): the UI speaks the same verbs as any local
