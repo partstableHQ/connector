@@ -30,6 +30,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /oauth/authorize", s.handleAuthorize)
 	mux.HandleFunc("POST /oauth/authorize", s.handleAuthorizeSubmit)
 	mux.HandleFunc("POST /oauth/token", s.handleToken)
+	mux.HandleFunc("GET /oauth/poll", s.handlePoll)
 	// Health lives under /oauth/* so a site-root mount can never shadow
 	// the main website's own routes in production.
 	mux.HandleFunc("GET /oauth/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -45,6 +46,7 @@ type authorizeParams struct {
 	Challenge   string
 	RedirectURI string
 	ClientID    string
+	PairingID   string // non-empty: poll-based in-app flow
 }
 
 // validateAuthorize checks the contract: our client, loopback redirect,
@@ -74,6 +76,7 @@ func validateAuthorize(q url.Values, clientID string) (authorizeParams, string) 
 		Challenge:   q.Get("code_challenge"),
 		RedirectURI: q.Get("redirect_uri"),
 		ClientID:    q.Get("client_id"),
+		PairingID:   q.Get("pairing_id"),
 	}, ""
 }
 
@@ -83,9 +86,13 @@ func (s *Service) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		errorPage(w, http.StatusBadRequest, errMsg)
 		return
 	}
+	if params.PairingID != "" {
+		s.codes.RegisterPairing(params.PairingID)
+	}
 	renderForm(w, formValues{
 		State: params.State, Challenge: params.Challenge,
 		RedirectURI: params.RedirectURI, ClientID: params.ClientID,
+		PairingID: params.PairingID,
 	}, "")
 }
 
@@ -95,6 +102,7 @@ type formValues struct {
 	Challenge   string
 	RedirectURI string
 	ClientID    string
+	PairingID   string
 	Email       string
 }
 
@@ -108,6 +116,7 @@ func (s *Service) handleAuthorizeSubmit(w http.ResponseWriter, r *http.Request) 
 		Challenge:   r.PostFormValue("challenge"),
 		RedirectURI: r.PostFormValue("redirect_uri"),
 		ClientID:    r.PostFormValue("client_id"),
+		PairingID:   r.PostFormValue("pairing_id"),
 		Email:       r.PostFormValue("email"),
 	}
 	q := url.Values{
@@ -118,6 +127,12 @@ func (s *Service) handleAuthorizeSubmit(w http.ResponseWriter, r *http.Request) 
 		"code_challenge":        {vals.Challenge},
 		"code_challenge_method": {"S256"},
 		"scope":                 {"api"},
+		"pairing_id":            {vals.PairingID},
+	}
+	// An empty pairing_id is legal (redirect flow); drop it from the
+	// re-validation binding so it round-trips identically.
+	if vals.PairingID == "" {
+		q.Del("pairing_id")
 	}
 	params, errMsg := validateAuthorize(q, s.clientID)
 	if errMsg != "" {
@@ -138,11 +153,60 @@ func (s *Service) handleAuthorizeSubmit(w http.ResponseWriter, r *http.Request) 
 	_ = created
 
 	// The code binds the account (normalized email + API key) to the
-	// verified authorize request; the token exchange releases both.
+	// verified authorize request.
 	code := s.codes.Issue(email, apiKey, params.Challenge, params.RedirectURI, params.ClientID)
+
+	// Poll-based in-app flow: no redirect — the page just confirms, and
+	// the app (holding the pairing secret) collects the code by polling.
+	// Nothing here can be broken by webview navigation semantics.
+	if params.PairingID != "" {
+		s.codes.CompletePairing(params.PairingID, code)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(signInCompletePage))
+		return
+	}
+
+	// Redirect flow (browser sign-ins): hand the code to the loopback
+	// callback.
 	dest := params.RedirectURI + "?code=" + url.QueryEscape(code) + "&state=" + url.QueryEscape(params.State)
 	http.Redirect(w, r, dest, http.StatusFound)
 }
+
+// handlePoll is the poll-based completion channel: the app holds the
+// pairing_id (a random secret that never reaches any web page) and
+// collects the authorization code when the user finishes the form.
+func (s *Service) handlePoll(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "missing id"})
+		return
+	}
+	code, status, err := s.codes.PollPairing(id)
+	switch {
+	case errors.Is(err, ErrPairingUnknown):
+		respondJSON(w, http.StatusNotFound, map[string]string{"error": "unknown pairing"})
+		return
+	case err != nil:
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	if status != "complete" {
+		respondJSON(w, http.StatusOK, map[string]string{"status": "pending"})
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "complete", "code": code})
+}
+
+func respondJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+const signInCompletePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>PartsTable</title></head>
+<body style="font-family:system-ui,sans-serif;background:#f1f5f9;color:#0f172a;display:grid;place-items:center;min-height:100vh;margin:0">
+<div style="text-align:center"><h1>Signed in ✓</h1><p>Return to the PartsTable Connector — this window closes by itself.</p></div></body></html>`
 
 func (s *Service) handleToken(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
@@ -213,6 +277,7 @@ var formTmpl = template.Must(template.New("authorize").Parse(
 <input type="hidden" name="challenge" value="{{.Values.Challenge}}">
 <input type="hidden" name="redirect_uri" value="{{.Values.RedirectURI}}">
 <input type="hidden" name="client_id" value="{{.Values.ClientID}}">
+<input type="hidden" name="pairing_id" value="{{.Values.PairingID}}">
 <p><input style="width:100%;padding:.6rem;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box" type="email" name="email" autocomplete="username" placeholder="you@company.com" required autofocus value="{{.Values.Email}}"></p>
 <p><input style="width:100%;padding:.6rem;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box" type="password" name="password" autocomplete="new-password" placeholder="Password (8+ characters)" required minlength="8"></p>
 <p><button style="width:100%;padding:.6rem;background:#0055dd;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer" type="submit">Sign in or create your free account</button></p>

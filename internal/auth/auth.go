@@ -25,11 +25,12 @@ const KeychainService = "partstable-connector"
 // encoded payload so Load never needs to guess account names.
 const keychainAccount = "api"
 
-// Identity endpoints. PARTSTABLE_AUTH_BASEURL overrides both for
+// Identity endpoints. PARTSTABLE_AUTH_BASEURL overrides all three for
 // development and staging.
 const (
 	DefaultAuthorizeURL = "https://partstable.com/oauth/authorize"
 	DefaultTokenURL     = "https://partstable.com/oauth/token" // #nosec G101 -- endpoint URL, not a credential
+	DefaultPollURL      = "https://partstable.com/oauth/poll"  // #nosec G101 -- endpoint URL, not a credential
 	ClientID            = "connector-desktop"
 	EnvBaseURL          = "PARTSTABLE_AUTH_BASEURL"
 )
@@ -52,6 +53,7 @@ type Store interface {
 type Config struct {
 	AuthorizeURL string
 	TokenURL     string
+	PollURL      string
 	ClientID     string
 }
 
@@ -62,12 +64,14 @@ func LoadConfig() Config {
 		return Config{
 			AuthorizeURL: base + "/oauth/authorize",
 			TokenURL:     base + "/oauth/token",
+			PollURL:      base + "/oauth/poll",
 			ClientID:     ClientID,
 		}
 	}
 	return Config{
 		AuthorizeURL: DefaultAuthorizeURL,
 		TokenURL:     DefaultTokenURL,
+		PollURL:      DefaultPollURL,
 		ClientID:     ClientID,
 	}
 }

@@ -15,9 +15,9 @@ import (
 
 // TestConnectorPairEndToEnd runs the REAL Connector pairing (auth.Pair —
 // the exact code path behind the app's Sign-in button) against the real
-// account service: browser opens the form, signs up, the loopback
-// callback fires, PKCE exchange completes, and the key lands where the
-// app would store it. This is the sign-in experience, minus the human.
+// account service: the sign-in window loads the form, the user submits
+// credentials, the pairing completes via poll (no loopback anywhere), the
+// PKCE exchange runs, and the key lands where the app would store it.
 func TestConnectorPairEndToEnd(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "accounts.db"))
 	if err != nil {
@@ -31,14 +31,13 @@ func TestConnectorPairEndToEnd(t *testing.T) {
 	cfg := auth.Config{
 		AuthorizeURL: ts.URL + "/oauth/authorize",
 		TokenURL:     ts.URL + "/oauth/token",
+		PollURL:      ts.URL + "/oauth/poll",
 		ClientID:     "connector-desktop",
 	}
 
 	// The fake browser: open the authorize URL, submit the form with the
-	// hidden binding plus credentials, then follow the redirect to the
-	// app's loopback callback — everything a human does, minus the typing.
-	// The recover guard keeps a late callback delivery from failing the
-	// test after Pair has already returned and closed its listener.
+	// hidden binding plus credentials. The pairing completes server-side;
+	// Pair's polling picks it up.
 	openBrowser := func(u string) error {
 		go func() {
 			defer func() { _ = recover() }()
@@ -69,9 +68,9 @@ func TestConnectorPairEndToEnd(t *testing.T) {
 	}
 }
 
-// driveBrowser walks the sign-in like a user: GET the authorize page,
-// carry its hidden fields plus credentials through the form, then follow
-// the redirect to the app's loopback callback.
+// driveBrowser walks the sign-in like a user: GET the authorize page to
+// get the form with its hidden binding, then submit credentials. The
+// pairing completes server-side — no redirect, no loopback.
 func driveBrowser(authorizeURL, email, password string) {
 	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -81,35 +80,34 @@ func driveBrowser(authorizeURL, email, password string) {
 	if err != nil {
 		return
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
+	form, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 
-	u, err := url.Parse(authorizeURL)
-	if err != nil {
-		return
+	// Carry the hidden fields through.
+	vals := url.Values{}
+	for _, name := range []string{"state", "challenge", "redirect_uri", "client_id", "pairing_id"} {
+		marker := `name="` + name + `" value="`
+		i := strings.Index(string(form), marker)
+		if i < 0 {
+			continue
+		}
+		rest := string(form)[i+len(marker):]
+		v := rest[:strings.Index(rest, `"`)]
+		decoded, err := url.QueryUnescape(v)
+		if err != nil {
+			decoded = v
+		}
+		vals.Set(name, decoded)
 	}
-	q := u.Query()
-	vals := url.Values{
-		"state":        {q.Get("state")},
-		"challenge":    {q.Get("code_challenge")},
-		"redirect_uri": {q.Get("redirect_uri")},
-		"client_id":    {q.Get("client_id")},
-		"email":        {email},
-		"password":     {password},
-	}
+	vals.Set("email", email)
+	vals.Set("password", password)
+
 	resp, err = noFollow.PostForm(serviceFormAction(authorizeURL), vals)
 	if err != nil {
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if loc, lerr := resp.Location(); lerr == nil {
-		// Follow to the app's loopback callback — this completes the Pair.
-		r, err := http.Get(loc.String())
-		if err == nil {
-			_, _ = io.Copy(io.Discard, r.Body)
-			_ = r.Body.Close()
-		}
-	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 }
 
 // serviceFormAction maps an authorize URL to the form's POST action.

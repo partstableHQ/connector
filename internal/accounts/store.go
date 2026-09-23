@@ -120,12 +120,15 @@ func newAPIKey() (string, error) {
 	return APIKeyPrefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// CodeStore holds pending authorization codes: single-use, short-lived.
-// In-memory by design — a restart invalidates pending pairings, which is
-// the safe failure direction for an identity flow.
+// CodeStore holds pending authorization codes: single-use, short-lived,
+// plus pairing completions for poll-based (in-app) sign-ins. In-memory by
+// design — a restart invalidates pending pairings, which is the safe
+// failure direction for an identity flow.
 type CodeStore struct {
-	mu    sync.Mutex
-	codes map[string]codeEntry
+	mu        sync.Mutex
+	codes     map[string]codeEntry
+	pairings  map[string]string // pairing_id → issued code ("" until done)
+	completed map[string]bool
 }
 
 type codeEntry struct {
@@ -142,7 +145,11 @@ const CodeTTL = 10 * time.Minute
 
 // NewCodeStore returns an empty in-memory code store.
 func NewCodeStore() *CodeStore {
-	return &CodeStore{codes: map[string]codeEntry{}}
+	return &CodeStore{
+		codes:     map[string]codeEntry{},
+		pairings:  map[string]string{},
+		completed: map[string]bool{},
+	}
 }
 
 // Issue mints a single-use authorization code bound to the authenticated
@@ -180,4 +187,47 @@ func (c *CodeStore) redeem(code string) (codeEntry, error) {
 		return codeEntry{}, ErrInvalidCode
 	}
 	return entry, nil
+}
+
+// RegisterPairing reserves a pairing_id before the form renders. Polling
+// reports "pending" until CompletePairing fires.
+func (c *CodeStore) RegisterPairing(pairingID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.pairings[pairingID]; !exists {
+		c.pairings[pairingID] = ""
+		c.completed[pairingID] = false
+	}
+}
+
+// CompletePairing records that the user finished the form: the issued
+// code becomes deliverable to whoever holds the pairing_id.
+func (c *CodeStore) CompletePairing(pairingID, code string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pairings[pairingID] = code
+	c.completed[pairingID] = true
+}
+
+// ErrPairingUnknown reports a pairing_id that was never registered here.
+var ErrPairingUnknown = errors.New("unknown pairing")
+
+// PollPairing reports a pairing's state. The code is handed over exactly
+// once; after delivery the pairing is consumed.
+func (c *CodeStore) PollPairing(pairingID string) (code, status string, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, known := c.pairings[pairingID]; !known {
+		return "", "", ErrPairingUnknown
+	}
+	if !c.completed[pairingID] {
+		return "", "pending", nil
+	}
+	code = c.pairings[pairingID]
+	if code == "" {
+		return "", "pending", nil
+	}
+	delete(c.pairings, pairingID)
+	delete(c.completed, pairingID)
+	return code, "complete", nil
 }

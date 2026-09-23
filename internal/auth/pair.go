@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,16 +27,12 @@ const PairTimeout = 5 * time.Minute
 // tells the user what to do about it.
 var ErrNoBrowser = errors.New("could not open a browser — sign in with `partstable login --api-key` instead")
 
-// callbackResult carries the outcome of the loopback redirect.
-type callbackResult struct {
-	code string
-	err  error
-}
-
-// Pair runs the sign-in flow: open the system browser at the authorize
-// URL, receive the loopback redirect, exchange the code (with the PKCE
-// verifier) for the account key. progress, when non-nil, receives short
-// human-readable status lines. The protocol is specified in FLOW.md.
+// Pair runs the sign-in flow: open the sign-in page, wait for the user to
+// finish there, collect the authorization code by polling the service
+// (device-flow style — the pairing secret never reaches any web page),
+// then exchange the code (with the PKCE verifier) for the account key.
+// progress, when non-nil, receives short human-readable status lines.
+// The wire protocol is specified in FLOW.md.
 func Pair(ctx context.Context, cfg Config, openBrowser func(string) error, progress func(string)) (KeyInfo, error) {
 	say := func(s string) {
 		if progress != nil {
@@ -58,70 +53,28 @@ func Pair(ctx context.Context, cfg Config, openBrowser func(string) error, progr
 	if err != nil {
 		return KeyInfo{}, fmt.Errorf("auth: %w", err)
 	}
+	pairingID, err := randomSeed(32)
+	if err != nil {
+		return KeyInfo{}, fmt.Errorf("auth: %w", err)
+	}
 	challenge := pkceChallenge(verifier)
 
-	// Loopback redirect listener (RFC 8252): a random port on 127.0.0.1,
-	// announced to the server in redirect_uri.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return KeyInfo{}, fmt.Errorf("auth: local callback listener: %w", err)
-	}
-	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", listener.Addr().(*net.TCPAddr).Port)
+	redirectURI := "http://127.0.0.1/callback"
 
-	result := make(chan callbackResult, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		if e := q.Get("error"); e != "" {
-			msg := "sign-in was not completed"
-			switch e {
-			case "access_denied":
-				msg = "sign-in was canceled"
-			case "temporarily_unavailable":
-				msg = "the sign-in service is temporarily unavailable — try again shortly"
-			}
-			http.Error(w, msg, http.StatusBadRequest)
-			result <- callbackResult{err: errors.New(msg)}
-			return
-		}
-		if q.Get("state") != state {
-			// Never surface the code from a response we did not start.
-			http.Error(w, "sign-in could not be verified — please try again", http.StatusBadRequest)
-			result <- callbackResult{err: errors.New("sign-in could not be verified (state mismatch) — please try again")}
-			return
-		}
-		code := q.Get("code")
-		if code == "" {
-			http.Error(w, "sign-in did not complete — please try again", http.StatusBadRequest)
-			result <- callbackResult{err: errors.New("sign-in did not complete — please try again")}
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, callbackPage)
-		result <- callbackResult{code: code}
-	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	serving := make(chan struct{})
-	go func() {
-		close(serving)
-		_ = server.Serve(listener)
-	}()
-	<-serving
-	defer func() { _ = server.Close() }()
-
-	say("Checking the account service…")
-	if err := preflight(ctx, cfg.AuthorizeURL); err != nil {
-		return KeyInfo{}, err
-	}
-
-	authURL := fmt.Sprintf("%s?response_type=code&client_id=%s&redirect_uri=%s&state=%s&code_challenge=%s&code_challenge_method=S256&scope=api",
+	authURL := fmt.Sprintf("%s?response_type=code&client_id=%s&redirect_uri=%s&state=%s&code_challenge=%s&code_challenge_method=S256&scope=api&pairing_id=%s",
 		cfg.AuthorizeURL,
 		url.QueryEscape(cfg.ClientID),
 		url.QueryEscape(redirectURI),
 		url.QueryEscape(state),
 		url.QueryEscape(challenge),
+		url.QueryEscape(pairingID),
 	)
-	say("Opening the sign-in window…")
+	say("Checking the account service…")
+	if err := preflight(ctx, cfg.AuthorizeURL); err != nil {
+		return KeyInfo{}, err
+	}
+
+	say("Opening the sign-in window — finish signing in there.")
 	if openBrowser == nil {
 		openBrowser = defaultBrowserOpener
 	}
@@ -132,24 +85,58 @@ func Pair(ctx context.Context, cfg Config, openBrowser func(string) error, progr
 		return KeyInfo{}, fmt.Errorf("could not open the sign-in page: %w", err)
 	}
 
+	say("Waiting for you to finish signing in…")
+
+	// Poll for the pairing completion. The app holds the pairing secret;
+	// the web page never sees it, so no browser behavior can break the
+	// handoff (the failure mode that made in-app sign-in dead-end).
 	var code string
-	select {
-	case cr := <-result:
-		if cr.err != nil {
-			return KeyInfo{}, cr.err
+	for {
+		select {
+		case <-ctx.Done():
+			return KeyInfo{}, errors.New("sign-in timed out — nothing was changed; try again when ready")
+		case <-time.After(pollInterval):
 		}
-		code = cr.code
-	case <-ctx.Done():
-		return KeyInfo{}, errors.New("sign-in timed out — nothing was changed; try again when ready")
+		got, status, err := pollPairing(ctx, cfg.PollURL, pairingID)
+		if err != nil {
+			continue // transient poll failures must not kill the attempt
+		}
+		if status == "complete" {
+			code = got
+			break
+		}
 	}
 
 	say("Finishing sign-in…")
-	info, err := exchange(ctx, cfg, code, redirectURI, verifier)
+	return exchange(ctx, cfg, code, redirectURI, verifier)
+}
+
+// pollInterval is the pairing poll cadence.
+const pollInterval = 2 * time.Second
+
+// pollPairing queries the service once for a pairing's completion.
+func pollPairing(ctx context.Context, pollURL, pairingID string) (string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		pollURL+"?id="+url.QueryEscape(pairingID), nil)
 	if err != nil {
-		return KeyInfo{}, err
+		return "", "", err
 	}
-	say(fmt.Sprintf("Signed in as %s.", info.Email))
-	return info, nil
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body struct {
+		Status string `json:"status"`
+		Code   string `json:"code"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&body); err != nil {
+		return "", "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("poll failed (HTTP %d)", resp.StatusCode)
+	}
+	return body.Code, body.Status, nil
 }
 
 // preflight verifies the account service actually answers before the app
@@ -223,15 +210,6 @@ func exchange(ctx context.Context, cfg Config, code, redirectURI, verifier strin
 	}
 	return KeyInfo{Email: tok.AccountEmail, APIKey: tok.APIKey}, nil
 }
-
-const callbackPage = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>PartsTable Connector</title></head>
-<body style="font-family:system-ui,sans-serif;background:#f1f5f9;color:#0f172a;
-display:grid;place-items:center;min-height:100vh;margin:0">
-<div style="text-align:center">
-<h1>Sign-in complete</h1>
-<p>You can close this window and return to the PartsTable Connector.</p>
-</div></body></html>`
 
 // pkceChallenge derives the S256 challenge for a verifier.
 func pkceChallenge(verifier string) string {

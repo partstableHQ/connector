@@ -104,10 +104,10 @@ func startLocalAPI() func() {
 		// that hides behind its own app reads as "nothing happened"
 		// (CEO beta finding 2026-09-22).
 		signInWin = application.Get().Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:        fmt.Sprintf("signin-%d", time.Now().UnixNano()),
-			Title:       "PartsTable — Sign in",
-			URL:         u,
-			Width:       560, Height: 720,
+			Name:  fmt.Sprintf("signin-%d", time.Now().UnixNano()),
+			Title: "PartsTable — Sign in",
+			URL:   u,
+			Width: 560, Height: 720,
 			AlwaysOnTop: true,
 		})
 		return func() {
