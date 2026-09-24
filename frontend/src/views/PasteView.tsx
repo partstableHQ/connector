@@ -1,37 +1,54 @@
-import { useState, useRef } from 'react';
-import { ModuleRegistry, AllCommunityModule, type ColDef } from 'ag-grid-community';
+import { useState } from 'react';
+import { ModuleRegistry, AllCommunityModule, themeQuartz, type ColDef } from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
 import { API, type PasteResponse } from '../api';
-import 'ag-grid-community/styles/ag-theme-quartz.css';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
+const gridTheme = themeQuartz.withParams({
+  rowHeight: 32,
+  headerHeight: 36,
+  fontSize: 12.5,
+  fontFamily: "'IBM Plex Sans', sans-serif",
+  backgroundColor: '#FFFFFF',
+  foregroundColor: '#0F1923',
+  borderColor: '#E5E7EB',
+  oddRowBackgroundColor: '#F8F9FA',
+  headerBackgroundColor: '#F8F9FA',
+  headerTextColor: '#64748B',
+  accentColor: '#0055DD',
+});
+
 interface GridRow {
-  pn: string; qty: number; description: string;
-  substitutes: string; holders: string;
+  pn: string;
+  qty: number;
+  description: string;
+  substitutes: string;
+  holders: string;
 }
+
+const colDefs: ColDef<GridRow>[] = [
+  { field: 'pn', headerName: 'Part Number', width: 150, cellClass: 'mono-cell' },
+  { field: 'qty', headerName: 'Qty', width: 60, type: 'rightAligned' },
+  { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
+  { field: 'substitutes', headerName: 'Substitutes', flex: 1, minWidth: 180 },
+  { field: 'holders', headerName: 'Holders', flex: 1, minWidth: 180 },
+];
 
 export default function PasteView() {
   const [text, setText] = useState('');
   const [warnings, setWarnings] = useState<PasteResponse['warnings']>([]);
   const [loading, setLoading] = useState(false);
-  const gridRef = useRef<AgGridReact<GridRow>>(null);
   const [rowData, setRowData] = useState<GridRow[]>([]);
-
-  const colDefs: ColDef<GridRow>[] = [
-    { field: 'pn', headerName: 'Part Number', width: 150, cellClass: 'mono-cell' },
-    { field: 'qty', headerName: 'Qty', width: 60, type: 'rightAligned' },
-    { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-    { field: 'substitutes', headerName: 'Substitutes', flex: 1, minWidth: 180 },
-    { field: 'holders', headerName: 'Holders', flex: 1, minWidth: 180 },
-  ];
 
   const parseAndLookup = async () => {
     if (!text.trim()) return;
     setLoading(true);
     try {
       const r = await fetch(`${API}/paste`, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text,
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: text,
       });
       const body: PasteResponse = await r.json();
       if (!r.ok) return;
@@ -40,7 +57,7 @@ export default function PasteView() {
         pn: e.pn,
         qty: e.qty,
         description: e.result?.part?.description ?? '(no record)',
-        substitutes: e.result?.part?.xrefs.map((x) => `${x.to_pn} ${x.kind}`).join(', ') ?? '—',
+        substitutes: e.result?.part?.xrefs.map((x) => `${x.to_pn} ${x.kind} [${x.source}]`).join(', ') ?? '—',
         holders: e.result?.part?.holders.map((h) => `${h.holder} (${h.qty})`).join(', ') ?? '—',
       })));
     } catch { /* API unreachable */ } finally { setLoading(false); }
@@ -50,7 +67,9 @@ export default function PasteView() {
     if (!text.trim()) return;
     try {
       const r = await fetch(`${API}/paste/export`, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text,
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: text,
       });
       if (!r.ok) return;
       const blob = await r.blob();
@@ -92,15 +111,11 @@ export default function PasteView() {
         </div>
       )}
       {rowData.length > 0 && (
-        <div className="ag-theme-quartz" style={{ height: 400, width: '100%' }}>
+        <div style={{ height: 400, width: '100%' }}>
           <AgGridReact
-            ref={gridRef}
             columnDefs={colDefs}
             rowData={rowData}
-            theme="legacy"
-            rowHeight={32}
-            headerHeight={36}
-            defaultColDef={{ sortable: true, filter: true, resizable: true }}
+            theme={gridTheme}
             pagination
             paginationPageSize={50}
           />
