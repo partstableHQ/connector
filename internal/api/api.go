@@ -95,6 +95,7 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("GET /settings", s.handleGetSettings)
 	mux.HandleFunc("POST /settings", s.handlePostSettings)
 	mux.HandleFunc("POST /more", s.handleMore)
+	mux.HandleFunc("GET /catalog/search", s.handleCatalogSearch)
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,

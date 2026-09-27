@@ -1,96 +1,90 @@
 import { useState, useRef, useCallback } from 'react';
-import { API, type LookupResult, type SearchHit } from '../api';
+import { API } from '../api';
 
-function Chip({ source, detail }: { source: string; detail?: string }) {
-  const labels: Record<string, string> = {
-    oem: 'OEM', government_registry: 'GOV REGISTRY', broker_verified: 'BROKER-VERIFIED',
-    partner: 'PARTNER', certified: 'CERTIFIED ★',
-  };
+// Production catalog hit — the exact shape from partstable.com/api/v1/parts/search
+export interface CatalogHit {
+  partNumber: string;
+  normalizedPn: string;
+  description: string;
+  manufacturer: string | null;
+  category1: string | null;
+  category2: string | null;
+  listPrice: string;
+  lastCost: string;
+}
+
+/** V5 PartSearchInput dropdown spec: rows show PN (mono 600) +
+ * manufacturer (bold #6C757D) + description (11px), highlight #F0F4FF. */
+function HighlightedPN({ pn, query }: { pn: string; query: string }) {
+  const idx = pn.toUpperCase().indexOf(query.toUpperCase());
+  if (idx < 0) return <b style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600 }}>{pn}</b>;
   return (
-    <span className={`chip chip-${source}`} title={detail || source}>
-      {labels[source] ?? source.toUpperCase()}
-    </span>
+    <b style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600 }}>
+      {pn.slice(0, idx)}
+      <span style={{ color: 'var(--color-primary)' }}>{pn.slice(idx, idx + query.length)}</span>
+      {pn.slice(idx + query.length)}
+    </b>
   );
 }
 
 export default function LookupView() {
   const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [hits, setHits] = useState<CatalogHit[]>([]);
   const [showPop, setShowPop] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
-  const [result, setResult] = useState<LookupResult | null>(null);
-  const [status, setStatus] = useState('Type 2+ characters to search.');
+  const [selected, setSelected] = useState<CatalogHit | null>(null);
+  const [status, setStatus] = useState('Type 2+ characters — live search of the PartsTable catalog.');
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqRef = useRef(0);
+  const boxRef = useRef<HTMLDivElement>(null);
 
   const doTypeahead = useCallback((q: string) => {
-    if (q.length < 2) { setShowPop(false); return; }
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.trim().length < 2) { setShowPop(false); setStatus('Type 2+ characters — live search of the PartsTable catalog.'); return; }
     debounceRef.current = setTimeout(async () => {
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const seq = ++seqRef.current;
       setStatus('searching…');
       try {
-        const r = await fetch(`${API}/search?q=${encodeURIComponent(q)}`, { signal: abortRef.current.signal });
+        const r = await fetch(`${API}/catalog/search?q=${encodeURIComponent(q)}&limit=8`, { signal: abortRef.current.signal });
         if (seq !== seqRef.current) return;
         const body = await r.json();
-        setHits(body.results ?? []);
+        if (!r.ok) { setStatus(body.error ?? 'search error'); return; }
+        const results = (body.results ?? []) as CatalogHit[];
+        setHits(results);
         setShowPop(true);
         setActiveIdx(-1);
-        setStatus(body.results?.length ? `${body.results.length} match${body.results.length === 1 ? '' : 'es'}` : '0 results');
+        setStatus(results.length > 0
+          ? `${results.length} match${results.length === 1 ? '' : 'es'} · ${body.source === 'production' ? 'live catalog' : 'local compendium'}`
+          : 'no match in the catalog');
       } catch (e: unknown) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
-        if (seq === seqRef.current) setStatus('search error');
+        if (seq === seqRef.current) setStatus('search hiccup — try again');
       }
-    }, 150);
-  }, []);
-
-  const doLookup = useCallback(async (pn: string) => {
-    if (!pn) return;
-    setStatus(`Looking up ${pn}…`);
-    setShowPop(false);
-    try {
-      const r = await fetch(`${API}/lookup?pn=${encodeURIComponent(pn)}`);
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({ error: r.statusText }));
-        setStatus(err.error ?? 'error');
-        setResult(null);
-        return;
-      }
-      const body: LookupResult = await r.json();
-      setResult(body);
-      setStatus('');
-    } catch { setStatus('lookup failed'); setResult(null); }
+    }, 300); // V5 PartSearchInput debounce: 300ms
   }, []);
 
   const selectHit = (idx: number) => {
-    setQuery(hits[idx].pn);
+    setSelected(hits[idx]);
     setShowPop(false);
-    void doLookup(hits[idx].pn);
+    setQuery(hits[idx].partNumber);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!showPop || hits.length === 0) {
-      if (e.key === 'Enter') { e.preventDefault(); void doLookup(query); }
-      return;
-    }
+    if (e.key === 'Escape') { setShowPop(false); return; }
+    if (!showPop || hits.length === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, hits.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (activeIdx >= 0) selectHit(activeIdx);
-      else { setShowPop(false); void doLookup(query); }
-    } else if (e.key === 'Escape') setShowPop(false);
+    else if (e.key === 'Enter') { e.preventDefault(); if (activeIdx >= 0) selectHit(activeIdx); }
   };
 
   return (
-    <div className="view-lookup">
+    <div className="view-lookup" ref={boxRef}>
       <div className="search-wrap">
         <div className="sbox">
           <input
-            ref={(el) => { if (el) (window as any).__pnInput = el; }}
             id="pn"
             type="text"
             value={query}
@@ -106,84 +100,57 @@ export default function LookupView() {
           />
           <span className="kbd">Ctrl K</span>
         </div>
-        <button className="sbtn" onClick={() => void doLookup(query)}>Look up</button>
       </div>
 
+      {/* V5 PartSearchInput dropdown: absolute panel, rows = PN + mfr + desc */}
       {showPop && (
         <div className="lookup-pop" role="listbox">
           {hits.length === 0 ? (
-            <div className="pop-empty">No match in the documented set.</div>
+            <div className="pop-empty">No parts found</div>
           ) : (
             hits.map((h, i) => (
               <div
-                key={h.pn}
-                className={`pop-row ${i === activeIdx ? 'active' : ''}`}
+                key={h.partNumber + String(i)}
+                className="pop-row"
+                style={{ background: i === activeIdx ? '#F0F4FF' : undefined }}
+                onMouseEnter={() => setActiveIdx(i)}
                 onClick={() => selectHit(i)}
                 role="option"
                 aria-selected={i === activeIdx}
               >
-                <span className="pop-pn">{h.display_pn}</span>
-                <span className="pop-desc">{h.description}</span>
+                <span className="pop-pn"><HighlightedPN pn={h.partNumber} query={query} /></span>
+                <span className="pop-meta">
+                  {h.manufacturer && <b style={{ color: '#6C757D' }}>{h.manufacturer}</b>}
+                  <span className="pop-desc">{h.description}</span>
+                </span>
+                {h.listPrice !== '0.00' && h.listPrice && (
+                  <span className="pop-price mono">${h.listPrice}</span>
+                )}
               </div>
             ))
           )}
         </div>
       )}
 
-      <div className="chip-row">
-        <span className="chip-label">Try:</span>
-        {['02CL197', '4X70J67435', 'SN730SDB512GB'].map((q) => (
-          <button key={q} className="ex-chip mono" onClick={() => { setQuery(q); void doLookup(q); }}>{q}</button>
-        ))}
-      </div>
       <p className="statrow">{status}</p>
-      <div aria-live="polite">
-        {result && <ResultCard res={result} />}
-      </div>
-    </div>
-  );
-}
 
-function ResultCard({ res }: { res: LookupResult }) {
-  const p = res.part;
-  if (!p) {
-    return (
-      <div className="card">
-        <h2 className="mono">{res.normalized}</h2>
-        <p className="muted">No record. Entered as <span className="mono">{res.query}</span>.</p>
-      </div>
-    );
-  }
-  return (
-    <div className="card">
-      <div className="card-head">
-        <h2 className="mono">{p.display_pn}</h2>
-        {p.category && <span className="tag">{p.category}</span>}
-        {res.matched_by === 'alias' && (
-          <span className="match-note">via alias — <span className="mono">{p.pn}</span></span>
-        )}
-      </div>
-      <p className="desc">{p.description}</p>
-
-      <h3>Cross-references</h3>
-      {p.xrefs.length > 0 ? (
-        <table><thead><tr><th>Part</th><th>Kind</th><th>Source</th></tr></thead>
-          <tbody>{p.xrefs.map((x) => (
-            <tr key={x.to_pn}>
-              <td className="mono">{x.to_pn}</td><td>{x.kind}</td>
-              <td><Chip source={x.source} detail={x.source_detail} /></td>
-            </tr>))}</tbody></table>
-      ) : <p className="muted">None on record.</p>}
-
-      <h3>Who holds it</h3>
-      {p.holders.length > 0 ? (
-        <table><thead><tr><th>Holder</th><th>Qty</th><th>Condition</th><th>Last seen</th><th>Source</th></tr></thead>
-          <tbody>{p.holders.map((h, i) => (
-            <tr key={i}>
-              <td>{h.holder}</td><td className="num">{h.qty}</td><td>{h.condition}</td>
-              <td className="mono">{h.last_seen}</td><td><Chip source={h.source} detail={h.source_detail} /></td>
-            </tr>))}</tbody></table>
-      ) : <p className="muted">None on record.</p>}
+      {/* Selected part detail — the production data block */}
+      {selected && (
+        <div className="card">
+          <div className="card-head">
+            <h2 className="mono">{selected.partNumber}</h2>
+            {selected.category1 && <span className="tag">{selected.category1}{selected.category2 ? ` · ${selected.category2}` : ''}</span>}
+            {selected.manufacturer && <span className="tag">{selected.manufacturer}</span>}
+          </div>
+          <p className="desc">{selected.description}</p>
+          <table>
+            <tbody>
+              <tr><td>List price</td><td className="num">{selected.listPrice}</td></tr>
+              <tr><td>Last cost</td><td className="num">{selected.lastCost}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
