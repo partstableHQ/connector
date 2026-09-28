@@ -62,7 +62,7 @@ export default function PasteView() {
     const rows: GridRow[] = [];
     for (const line of result.lines) {
       try {
-        const r = await fetch(`http://127.0.0.1:7878/lookup?pn=${encodeURIComponent(line.pn)}`);
+        const r = await fetch(`http://127.0.0.1:7878/plookup?pn=${encodeURIComponent(line.pn)}`);
         if (!r.ok) {
           rows.push({
             pn: line.pn, qty: line.qty,

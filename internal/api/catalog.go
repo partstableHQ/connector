@@ -66,7 +66,7 @@ func productionResult(ctx context.Context, pn string) *lookup.Result {
 	if err != nil {
 		return nil
 	}
-	resp, err := catalogClient.Do(req)
+	resp, err := catalogClient.Do(req) // #nosec G704 -- fixed URL constant (ProductionTDSURL)
 	if err != nil {
 		return nil
 	}
@@ -109,6 +109,67 @@ func nonNil(ss ...*string) []string {
 		}
 	}
 	return out
+}
+
+// tdsSubstitutes fetches the production TDS substitutes for one part.
+func tdsSubstitutes(ctx context.Context, pn string) []lookup.Xref {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		ProductionTDSURL+"/"+url.PathEscape(pn), nil) // #nosec G704 -- fixed URL constant
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
+	resp, err := catalogClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var parsed struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Substitutes []struct {
+				PartNumber string `json:"partNumber"`
+				Source     string `json:"matchSource"`
+			} `json:"substitutes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || !parsed.Success {
+		return nil
+	}
+	xrefs := make([]lookup.Xref, 0, len(parsed.Data.Substitutes))
+	for _, sub := range parsed.Data.Substitutes {
+		xrefs = append(xrefs, lookup.Xref{
+			ToPN:   sub.PartNumber,
+			Kind:   "substitute",
+			Source: sub.Source,
+		})
+	}
+	return xrefs
+}
+
+// handlePLookup is the production-enriched single-part lookup: identity
+// from the catalog, substitutes from TDS; local compendium as the offline
+// fallback. Used by the paste view to enrich every parsed row with REAL data.
+func (s *Server) handlePLookup(w http.ResponseWriter, r *http.Request) {
+	pn := strings.TrimSpace(r.URL.Query().Get("pn"))
+	if pn == "" {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "missing pn parameter"})
+		return
+	}
+	if res := productionResult(r.Context(), pn); res != nil {
+		if subs := tdsSubstitutes(r.Context(), res.Part.PN); len(subs) > 0 {
+			res.Part.Xrefs = subs
+		}
+		respond(w, http.StatusOK, res)
+		return
+	}
+	res, err := s.svc.Lookup(r.Context(), pn)
+	respondResult(w, res, err)
 }
 
 // handleTDS proxies the production TDS endpoint: the full technical data
