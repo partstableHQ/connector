@@ -24,7 +24,7 @@ interface GridRow {
   qty: number;
   description: string;
   condition: string;
-  manufacturer: string;
+  category: string;
   substitutes: string;
   holders: string;
 }
@@ -34,7 +34,7 @@ const colDefs: ColDef<GridRow>[] = [
   { field: 'qty', headerName: 'Qty', width: 60, type: 'rightAligned' },
   { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
   { field: 'condition', headerName: 'Condition', width: 85 },
-  { field: 'manufacturer', headerName: 'Manufacturer', width: 130 },
+  { field: 'category', headerName: 'Category', width: 130 },
   { field: 'substitutes', headerName: 'Substitutes', flex: 1, minWidth: 180 },
   { field: 'holders', headerName: 'Holders', flex: 1, minWidth: 180 },
 ];
@@ -59,38 +59,50 @@ export default function PasteView() {
       return;
     }
 
-    const rows: GridRow[] = [];
-    for (const line of result.lines) {
+    // Enrich rows concurrently (bounded) — a 100-line RFQ must not crawl.
+    const CONCURRENCY = 6;
+    const rows: GridRow[] = new Array(result.lines.length);
+    let next = 0;
+    const enrichOne = async (i: number) => {
+      const line = result.lines[i];
       try {
         const r = await fetch(`http://127.0.0.1:7878/plookup?pn=${encodeURIComponent(line.pn)}`);
         if (!r.ok) {
-          rows.push({
+          rows[i] = {
             pn: line.pn, qty: line.qty,
             description: line.desc ?? '(no record)',
             condition: line.condition,
-            manufacturer: '—', substitutes: '—', holders: '—',
-          });
-          continue;
+            category: '—', substitutes: '—', holders: '—',
+          };
+          return;
         }
         const data = await r.json();
         const part = data.part;
-        rows.push({
+        rows[i] = {
           pn: line.pn,
           qty: line.qty,
           description: part?.description ?? line.desc ?? '(no record)',
           condition: line.condition,
-          manufacturer: part?.category ?? '—',
+          category: part?.category ?? '—',
           substitutes: part?.xrefs.map((x: { to_pn: string; kind: string }) => `${x.to_pn} ${x.kind}`).join(', ') || '—',
           holders: part?.holders.map((h: { holder: string; qty: number }) => `${h.holder} (${h.qty})`).join(', ') || '—',
-        });
+        };
       } catch {
-        rows.push({
+        rows[i] = {
           pn: line.pn, qty: line.qty,
           description: '(lookup failed)', condition: line.condition,
-          manufacturer: '—', substitutes: '—', holders: '—',
-        });
+          category: '—', substitutes: '—', holders: '—',
+        };
       }
-    }
+    };
+    const workers = Array.from({ length: Math.min(CONCURRENCY, result.lines.length) }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= result.lines.length) return;
+        await enrichOne(i);
+      }
+    });
+    await Promise.all(workers);
     setRowData(rows);
     setLoading(false);
   };

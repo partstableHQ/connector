@@ -33,6 +33,7 @@ interface TDS {
   partSubcategory: string;
   brand: string;
   dataConfidence: number;
+  confidence: number; // production /tds payload: 0-100 data confidence
   confidenceSources: string[];
   lifecycle: { status: string };
   isHazmat: boolean;
@@ -40,6 +41,14 @@ interface TDS {
   oemLink: { url: string; label: string };
   brokerGuidance: { tips: string[]; warnings: string[]; mistakes: string[] };
 }
+
+// Title-case a category/description word for the sheet title, e.g.
+// "SSD" → "SSD", "battery module" → "Battery Module".
+const titleCase = (s: string | null | undefined): string => {
+  const t = (s ?? '').trim();
+  if (!t) return 'Part';
+  return t.replace(/\w\S*/g, (w) => (w.length > 4 && w === w.toLowerCase() ? w[0].toUpperCase() + w.slice(1) : w));
+};
 
 export default function LookupView() {
   const [query, setQuery] = useState('');
@@ -173,12 +182,12 @@ export default function LookupView() {
           {/* Header block */}
           <div className="tds-card">
             <div className="tds-crumb">
-              PartsTable / <span className="tds-crumb-cat">{(tds.partCategory || 'PART').toUpperCase()}</span> / <span className="tds-crumb-pn">{tds.partNumber}</span>
+              PartsTable / <span className="tds-crumb-cat">{(tds.category || tds.partCategory || 'PART').toUpperCase()}</span> / <span className="tds-crumb-pn">{tds.partNumber}</span>
             </div>
-            <h1 className="tds-title">{tds.partNumber} — Battery Module Specs</h1>
+            <h1 className="tds-title">{tds.partNumber} — {titleCase(tds.category2 || tds.partSubcategory || tds.category || tds.description)} Specs</h1>
             <div className="tds-verified">✓ Verified by PartsTable</div>
             <div className="tds-brandline">
-              <b>{tds.brand || tds.manufacturer}</b> · {(tds.partCategory || 'PART').toUpperCase()} · {(tds.partSubcategory || '').toUpperCase()}
+              <b>{tds.brand || tds.manufacturer}</b> · {(tds.category || tds.partCategory || 'PART').toUpperCase()}{tds.category2 || tds.partSubcategory ? ` · ${(tds.category2 || tds.partSubcategory).toUpperCase()}` : ''}
             </div>
           </div>
 
@@ -226,6 +235,15 @@ export default function LookupView() {
             {specRow('Part Number', <span className="mono">{tds.partNumber}</span>)}
             {specRow('Manufacturer', tds.manufacturer)}
             {tds.category2 && specRow('Category', `${tds.category}${tds.category2 ? ' · ' + tds.category2 : ''}`)}
+            {typeof tds.confidence === 'number' && (
+              <div className="spec-row">
+                <span className="spec-label">Data confidence</span>
+                <span className="spec-value">
+                  <span className="tds-conf-bar" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, tds.confidence))}%` }} /></span>
+                  {tds.confidence}%
+                </span>
+              </div>
+            )}
             {selected && specRow('List price', <span className="mono">{selected.listPrice}</span>)}
             {selected && specRow('Last cost', <span className="mono">{selected.lastCost}</span>)}
           </div>
@@ -254,18 +272,20 @@ export default function LookupView() {
             </div>
           )}
 
-          {/* Lifecycle */}
+          {/* Lifecycle — production payload carries status (+ compliance when known);
+              nothing is rendered that the data does not assert. */}
           <div className="tds-card">
             <div className="tds-h">Lifecycle</div>
-            {specRow('Status', <span className="tds-status-amber">{tds.lifecycle?.status || 'Unknown'}</span>)}
-            {specRow('Availability', '—')}
-            <div className="tds-badges">
-              <span className="tds-badge tds-badge-green">RoHS Compliant</span>
-              <span className="tds-badge tds-badge-gray">EAR99</span>
-              <span className="tds-badge tds-badge-amber">ESD Sensitive</span>
-              {tds.isHazmat && <span className="tds-badge tds-badge-red">DG Class 9 — Lithium</span>}
-              {tds.isHazmat && <span className="tds-badge tds-badge-red">Restricted Air Freight</span>}
-            </div>
+            {specRow('Status', <span className={tds.lifecycle?.status === 'active' ? 'tds-status-green' : 'tds-status-amber'}>{tds.lifecycle?.status || 'Unknown'}</span>)}
+            {(tds as { rohs?: boolean }).rohs === true && (
+              <div className="tds-badges"><span className="tds-badge tds-badge-green">RoHS Compliant</span></div>
+            )}
+            {tds.isHazmat && (
+              <div className="tds-badges">
+                <span className="tds-badge tds-badge-red">DG Class 9 — Lithium</span>
+                <span className="tds-badge tds-badge-red">Restricted Air Freight</span>
+              </div>
+            )}
           </div>
 
           {/* Footer validation line */}
