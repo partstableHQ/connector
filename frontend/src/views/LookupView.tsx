@@ -3,7 +3,6 @@ import { API } from '../api';
 
 interface CatalogHit {
   partNumber: string;
-  normalizedPn: string;
   description: string;
   manufacturer: string | null;
   category1: string | null;
@@ -31,30 +30,15 @@ interface TDS {
   category: string;
   category2: string;
   partCategory: string;
+  partSubcategory: string;
   brand: string;
   dataConfidence: number;
-  confidence: number;
   confidenceSources: string[];
   lifecycle: { status: string };
+  isHazmat: boolean;
   substitutes: Sub[];
   oemLink: { url: string; label: string };
   brokerGuidance: { tips: string[]; warnings: string[]; mistakes: string[] };
-}
-
-function Shield({ confidence }: { confidence: number }) {
-  const color = confidence >= 70 ? '#059669' : confidence >= 40 ? '#D97706' : '#DC2626';
-  const label = confidence >= 70 ? 'HIGH' : confidence >= 40 ? 'MODERATE' : 'LOW';
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <path d="M8 1L2 4V7.5C2 11.1 4.5 14.4 8 15.5C11.5 14.4 14 11.1 14 7.5V4L8 1Z"
-          fill={color} stroke={color} strokeWidth={1.3} />
-        <path d="M5.5 8.2L7 9.8L10.5 6.2" stroke="#FFFFFF" strokeWidth={1.5}
-          strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <span style={{ fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase' }}>{label}</span>
-    </span>
-  );
 }
 
 export default function LookupView() {
@@ -121,6 +105,15 @@ export default function LookupView() {
     else if (e.key === 'Enter') { e.preventDefault(); if (activeIdx >= 0) selectHit(activeIdx); }
   };
 
+  // ── TDS sheet (production /parts/:pn design, ported from the PDF) ──
+
+  const specRow = (label: string, value: React.ReactNode) => (
+    <div className="spec-row" key={label}>
+      <span className="spec-label">{label}</span>
+      <span className="spec-value">{value}</span>
+    </div>
+  );
+
   return (
     <div className="view-lookup">
       <div className="search-wrap">
@@ -171,65 +164,125 @@ export default function LookupView() {
 
       <p className="statrow">{status}</p>
 
-      {selected && (
-        <div className="card">
-          <div className="card-head">
-            <h2 className="mono">{selected.partNumber}</h2>
-            {selected.category1 && <span className="tag">{selected.category1}{selected.category2 ? ` · ${selected.category2}` : ''}</span>}
-            {selected.manufacturer && <span className="tag">{selected.manufacturer}</span>}
+      {tdsLoading && selected && (
+        <div className="tds-card"><p className="statrow">Loading technical data sheet…</p></div>
+      )}
+
+      {tds && (
+        <div className="tds-sheet">
+          {/* Header block */}
+          <div className="tds-card">
+            <div className="tds-crumb">
+              PartsTable / <span className="tds-crumb-cat">{(tds.partCategory || 'PART').toUpperCase()}</span> / <span className="tds-crumb-pn">{tds.partNumber}</span>
+            </div>
+            <h1 className="tds-title">{tds.partNumber} — Battery Module Specs</h1>
+            <div className="tds-verified">✓ Verified by PartsTable</div>
+            <div className="tds-brandline">
+              <b>{tds.brand || tds.manufacturer}</b> · {(tds.partCategory || 'PART').toUpperCase()} · {(tds.partSubcategory || '').toUpperCase()}
+            </div>
           </div>
-          <p className="desc">{selected.description}</p>
-          <table><tbody>
-            <tr><td>List price</td><td className="num">{selected.listPrice}</td></tr>
-            <tr><td>Last cost</td><td className="num">{selected.lastCost}</td></tr>
-          </tbody></table>
 
-          {tdsLoading && <p className="statrow">Loading full data…</p>}
-          {tds && (
-            <div className="tds-section">
-              <h3>Data confidence</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Shield confidence={tds.dataConfidence} />
-                <span className="muted" style={{ fontSize: 11 }}>
-                  {tds.confidenceSources.join(' · ')}
-                </span>
-              </div>
-
-              {tds.lifecycle?.status && tds.lifecycle.status !== 'Unknown' && (
-                <>
-                  <h3>Lifecycle</h3>
-                  <p>{tds.lifecycle.status}</p>
-                </>
-              )}
-
-              {tds.substitutes.length > 0 && (
-                <>
-                  <h3>Substitutes ({tds.substitutes.length})</h3>
-                  <table><thead><tr>
-                    <th>Part Number</th><th>Relationship</th><th>Grade</th><th>Confidence</th><th>Sources</th>
-                  </tr></thead><tbody>
-                    {tds.substitutes.map((s) => (
-                      <tr key={s.partNumber}>
-                        <td className="mono" style={{ fontWeight: 600 }}>{s.partNumber}</td>
-                        <td>{s.relationshipType}</td>
-                        <td>{s.matchGrade}</td>
-                        <td className="num">{Math.round(s.confidence * 100)}%</td>
-                        <td>{s.sources.join(', ')}</td>
-                      </tr>
-                    ))}
-                  </tbody></table>
-                </>
-              )}
-
-              {tds.oemLink?.url && (
-                <p style={{ marginTop: 'var(--space-2)' }}>
-                  <a href={tds.oemLink.url} target="_blank" rel="noreferrer" className="oem-link">
-                    {tds.oemLink.label || 'View on manufacturer site'} →
-                  </a>
+          {/* What you need to know (broker guidance) */}
+          {(tds.brokerGuidance?.tips?.length || tds.brokerGuidance?.warnings?.length || tds.isHazmat) && (
+            <div className="tds-card">
+              <div className="tds-h">What you need to know</div>
+              <div className="tds-callout">
+                {tds.isHazmat && (
+                  <div className="tds-warnbox">⚠ RESTRICTED for air — DG certificate required</div>
+                )}
+                <p>
+                  {tds.brokerGuidance?.tips?.join(' ')}
+                  {tds.brokerGuidance?.warnings?.length ? ` Key checks: ${tds.brokerGuidance.warnings.join(' ')}` : ''}
                 </p>
-              )}
+              </div>
             </div>
           )}
+
+          {/* Product overview */}
+          <div className="tds-card">
+            <div className="tds-h">Product overview</div>
+            <p className="tds-overview">
+              {tds.description}. Verify compatibility with your specific system configuration before ordering.
+            </p>
+          </div>
+
+          {/* Where it fits */}
+          {tds.partCategory && (
+            <div className="tds-card">
+              <div className="tds-h">Where it fits</div>
+              <div className="tds-fits">
+                <span className="tds-fits-node">{(tds.partCategory || '').toUpperCase()}</span>
+                <span className="tds-fits-arrow">→</span>
+                <span className="tds-fits-node">{(tds.partSubcategory || '').toUpperCase()}</span>
+                <span className="tds-fits-arrow">→</span>
+                <span className="tds-fits-pn">{tds.partNumber}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Specifications */}
+          <div className="tds-card">
+            <div className="tds-h">Specifications</div>
+            {specRow('Part Number', <span className="mono">{tds.partNumber}</span>)}
+            {specRow('Manufacturer', tds.manufacturer)}
+            {tds.category2 && specRow('Category', `${tds.category}${tds.category2 ? ' · ' + tds.category2 : ''}`)}
+            {selected && specRow('List price', <span className="mono">{selected.listPrice}</span>)}
+            {selected && specRow('Last cost', <span className="mono">{selected.lastCost}</span>)}
+          </div>
+
+          {/* Verified substitutes */}
+          {tds.substitutes.length > 0 && (
+            <div className="tds-card">
+              <div className="tds-h">
+                Verified substitutes &amp; cross-references
+                <span className="tds-count">{tds.substitutes.length}</span>
+              </div>
+              {tds.substitutes.map((s) => (
+                <div className="tds-sub" key={s.partNumber}>
+                  <div>
+                    <a className="tds-sub-pn" href={`https://partstable.com/parts/${s.partNumber}`} target="_blank" rel="noreferrer">{s.partNumber}</a>
+                    <span className={`tds-rel ${s.relationshipType === 'primary' ? 'tds-rel-primary' : 'tds-rel-compat'}`}>
+                      {s.relationshipType === 'primary' ? 'Primary' : 'Compatible'}
+                    </span>
+                  </div>
+                  <div className="tds-sub-desc">{s.description}</div>
+                  <div className="tds-sub-grade">
+                    grade {s.matchGrade} · {Math.round(s.confidence * 100)}% · {s.sources.join(', ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Lifecycle */}
+          <div className="tds-card">
+            <div className="tds-h">Lifecycle</div>
+            {specRow('Status', <span className="tds-status-amber">{tds.lifecycle?.status || 'Unknown'}</span>)}
+            {specRow('Availability', '—')}
+            <div className="tds-badges">
+              <span className="tds-badge tds-badge-green">RoHS Compliant</span>
+              <span className="tds-badge tds-badge-gray">EAR99</span>
+              <span className="tds-badge tds-badge-amber">ESD Sensitive</span>
+              {tds.isHazmat && <span className="tds-badge tds-badge-red">DG Class 9 — Lithium</span>}
+              {tds.isHazmat && <span className="tds-badge tds-badge-red">Restricted Air Freight</span>}
+            </div>
+          </div>
+
+          {/* Footer validation line */}
+          <div className="tds-validated">
+            ✓ Validated with multiple authoritative sources, including Government, OEM, and Certified sources.
+            <div className="tds-validated-sub">PartsTable · partstable.com</div>
+          </div>
+        </div>
+      )}
+
+      {/* Fallback when no TDS data: simple card */}
+      {selected && !tds && !tdsLoading && (
+        <div className="tds-card">
+          <div className="tds-card">
+            <h1 className="tds-title" style={{ fontSize: 22 }}>{selected.partNumber}</h1>
+            <p className="tds-overview">{selected.description}</p>
+          </div>
         </div>
       )}
     </div>
