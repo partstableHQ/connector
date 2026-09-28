@@ -6,6 +6,24 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Fixed (beta.25) — CEO feedback round
+
+- **Excel export now matches the grid.** The export pipeline re-fetched
+  every part from production and the edge throttled the burst — first row
+  came through, the rest shipped "(no record in compendium rev)" even
+  though the app was showing the parts. All production lookups and TDS
+  fetches now go through a 15-minute TTL cache shared by the typeahead,
+  paste grid, TDS panel, and exports: the export reuses what the grid
+  already fetched and re-fights the edge for nothing. Verified: warm
+  cache → 0 no-record rows, 6/6 real descriptions.
+- **Export format stripped to the broker deliverable** (CEO ruling):
+  part number, qty, description, substitute PNs — nothing else. Removed
+  the sources column (iqr_mirror / cenz / flis_graph labels), grade and
+  confidence columns, holders, source-lines, and category. The single-part
+  Substitutes sheet carries PN / primary-or-substitute / description only,
+  and production's internal relationship vocabulary ("same_fsc") is mapped
+  to primary/substitute.
+
 ### Changed (beta.24) — CEO feedback round
 
 - **Checkbox selection with select all / deselect all.** The paste grid

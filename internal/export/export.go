@@ -1,7 +1,8 @@
-// Package export renders paste results as .xlsx (FM-9) — headers,
-// quantities, and citation columns, so the file stands alone once it
-// leaves the app. Opens clean in Excel 2016+ (excelize guarantees the
-// format; a read-back test pins the shape).
+// Package export renders paste results as .xlsx (FM-9). The format is the
+// minimal broker deliverable per the CEO's 2026-09-28 ruling: part numbers,
+// quantities, descriptions, and substitute PNs — no sources, grades,
+// confidence, or holders. Opens clean in Excel 2016+ (excelize guarantees
+// the format; a read-back test pins the shape).
 package export
 
 import (
@@ -9,7 +10,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/partstableHQ/connector/internal/compendium"
 	"github.com/partstableHQ/connector/internal/lookup"
 	"github.com/partstableHQ/connector/internal/parse"
 	"github.com/xuri/excelize/v2"
@@ -18,38 +18,18 @@ import (
 const sheet = "Parts"
 
 // Row is one line of the export: the user's paste entry plus its lookup
-// result (nil Result or nil Part when the compendium has no record — the
-// row still ships so the export is a complete copy of the paste).
+// result (nil Result or nil Part when no record exists — the row still
+// ships so the export is a complete copy of the paste).
 type Row struct {
 	Entry parse.Entry
 	Res   *lookup.Result
 }
 
-// citationLabel maps the compendium source vocabulary to the human label.
-func citationLabel(source string) string {
-	switch source {
-	case compendium.SourceOEM:
-		return "OEM"
-	case compendium.SourceGovernmentRegistry:
-		return "GOVERNMENT REGISTRY"
-	case compendium.SourceBrokerVerified:
-		return "BROKER-VERIFIED"
-	case compendium.SourcePartner:
-		return "PARTNER"
-	case compendium.SourceCertified:
-		return "CERTIFIED ★"
-	default:
-		return strings.ToUpper(source)
-	}
-}
-
-// SubRow is one verified substitute in the single-part export.
+// SubRow is one substitute in the single-part export.
 type SubRow struct {
-	PartNumber    string
-	Relationship  string
-	Grade         string
-	ConfidencePct int
-	Sources       []string
+	PartNumber   string
+	Relationship string
+	Description  string
 }
 
 // Build renders the rows into .xlsx bytes.
@@ -66,8 +46,8 @@ func Build(rows []Row) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// BuildSingle renders one looked-up part plus its verified substitutes
-// into a two-sheet workbook — the deliverable behind the Lookup view's
+// BuildSingle renders one looked-up part plus its substitutes into a
+// two-sheet workbook — the deliverable behind the Lookup view's
 // Export to Excel button.
 func BuildSingle(r Row, subs []SubRow) ([]byte, error) {
 	f := excelize.NewFile()
@@ -87,16 +67,15 @@ func BuildSingle(r Row, subs []SubRow) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// writePartsSheet fills the workbook's first sheet with the parsed rows
-// (your part / qty / description / category / cross-references / holders /
-// source lines) and freezes the header.
+// writePartsSheet fills the workbook's first sheet: your part / qty /
+// description / substitutes (bare PNs, one per line). Nothing else.
 func writePartsSheet(f *excelize.File, rows []Row) error {
 	// The fresh workbook's default sheet is the only one; make it ours.
 	if err := f.SetSheetName(f.GetSheetName(0), sheet); err != nil {
 		return fmt.Errorf("export: rename sheet: %w", err)
 	}
 
-	headers := []string{"Your part", "Qty", "Description", "Category", "Cross-references", "Holders", "Source lines"}
+	headers := []string{"Your part", "Qty", "Description", "Substitutes"}
 	bold, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
 	if err != nil {
 		return fmt.Errorf("export: header style: %w", err)
@@ -118,42 +97,21 @@ func writePartsSheet(f *excelize.File, rows []Row) error {
 
 	for i, r := range rows {
 		rowN := i + 2
-		desc, category := "(no record in compendium rev)", ""
-		var xrefs, holders []string
+		desc := "(no record)"
+		var subs []string
 		if r.Res != nil && r.Res.Part != nil {
 			if r.Res.Part.Description != "" {
 				desc = r.Res.Part.Description
 			}
-			category = r.Res.Part.Category
 			for _, x := range r.Res.Part.Xrefs {
-				xrefs = append(xrefs, fmt.Sprintf("%s (%s · %s)", x.ToPN, x.Kind, citationLabel(x.Source)))
-			}
-			for _, h := range r.Res.Part.Holders {
-				cond := h.Condition
-				if cond == "" {
-					cond = "condition n/a"
-				}
-				holders = append(holders, fmt.Sprintf("%s — qty %d · %s · seen %s (%s)",
-					h.Holder, h.Qty, cond, h.LastSeen, citationLabel(h.Source)))
+				subs = append(subs, x.ToPN)
 			}
 		}
-		if len(xrefs) == 0 {
-			xrefs = []string{"—"}
-		}
-		if len(holders) == 0 {
-			holders = []string{"—"}
+		if len(subs) == 0 {
+			subs = []string{"—"}
 		}
 
-		lineNos := make([]string, 0, len(r.Entry.Lines))
-		for _, n := range r.Entry.Lines {
-			lineNos = append(lineNos, fmt.Sprintf("%d", n))
-		}
-
-		values := []any{
-			r.Entry.PN, r.Entry.Qty, desc, category,
-			strings.Join(xrefs, "\n"), strings.Join(holders, "\n"),
-			strings.Join(lineNos, ", "),
-		}
+		values := []any{r.Entry.PN, r.Entry.Qty, desc, strings.Join(subs, "\n")}
 		for c, v := range values {
 			cell, _ := excelize.CoordinatesToCellName(c+1, rowN)
 			if err := f.SetCellValue(sheet, cell, v); err != nil {
@@ -167,7 +125,7 @@ func writePartsSheet(f *excelize.File, rows []Row) error {
 		}
 	}
 
-	widths := map[string]float64{"A": 20, "B": 7, "C": 46, "D": 14, "E": 52, "F": 56, "G": 12}
+	widths := map[string]float64{"A": 20, "B": 7, "C": 52, "D": 34}
 	for col, w := range widths {
 		if err := f.SetColWidth(sheet, col, col, w); err != nil {
 			return fmt.Errorf("export: width %s: %w", col, err)
@@ -184,7 +142,8 @@ func writePartsSheet(f *excelize.File, rows []Row) error {
 	return nil
 }
 
-// writeSubsSheet appends the Substitutes sheet for the single-part export.
+// writeSubsSheet appends the Substitutes sheet for the single-part export:
+// substitute/primary PNs, relationship, description — nothing else.
 func writeSubsSheet(f *excelize.File, subs []SubRow) error {
 	const subsSheet = "Substitutes"
 	if _, err := f.NewSheet(subsSheet); err != nil {
@@ -194,7 +153,7 @@ func writeSubsSheet(f *excelize.File, subs []SubRow) error {
 	if err != nil {
 		return fmt.Errorf("export: substitutes header style: %w", err)
 	}
-	headers := []string{"Part number", "Relationship", "Grade", "Confidence %", "Sources"}
+	headers := []string{"Part number", "Relationship", "Description"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		if err := f.SetCellValue(subsSheet, cell, h); err != nil {
@@ -210,15 +169,11 @@ func writeSubsSheet(f *excelize.File, subs []SubRow) error {
 		if rel == "" {
 			rel = "substitute"
 		}
-		grade := s.Grade
-		if grade == "" {
-			grade = "—"
+		desc := s.Description
+		if desc == "" {
+			desc = "—"
 		}
-		srcs := s.Sources
-		if len(srcs) == 0 {
-			srcs = []string{"—"}
-		}
-		values := []any{s.PartNumber, rel, grade, s.ConfidencePct, strings.Join(srcs, ", ")}
+		values := []any{s.PartNumber, rel, desc}
 		for c, v := range values {
 			cell, _ := excelize.CoordinatesToCellName(c+1, rowN)
 			if err := f.SetCellValue(subsSheet, cell, v); err != nil {
@@ -226,7 +181,7 @@ func writeSubsSheet(f *excelize.File, subs []SubRow) error {
 			}
 		}
 	}
-	for col, w := range map[string]float64{"A": 22, "B": 14, "C": 8, "D": 13, "E": 34} {
+	for col, w := range map[string]float64{"A": 22, "B": 14, "C": 52} {
 		if err := f.SetColWidth(subsSheet, col, col, w); err != nil {
 			return fmt.Errorf("export: substitutes width %s: %w", col, err)
 		}

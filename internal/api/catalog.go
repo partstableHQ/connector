@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/partstableHQ/connector/internal/export"
@@ -26,6 +26,96 @@ const ProductionPartsSearchURL = "https://partstable.com/api/v1/parts/search"
 const ProductionTDSURL = "https://partstable.com/api/public/v1/tds"
 
 var catalogClient = &http.Client{Timeout: 10 * time.Second}
+
+// prodCache is a small TTL cache in front of the production endpoints.
+// Every consumer (typeahead, paste-grid enrichment, TDS panel, Excel
+// export) shares it, so an export never re-fights the production edge
+// for parts the grid looked up seconds ago — the edge throttles bursts,
+// and a throttled export used to ship "(no record)" rows the grid had
+// already answered.
+type prodCacheEntry struct {
+	value     any
+	expiresAt time.Time
+}
+
+var prodCache = struct {
+	sync.Mutex
+	entries map[string]prodCacheEntry
+}{entries: make(map[string]prodCacheEntry)}
+
+const (
+	prodCacheTTL      = 15 * time.Minute
+	prodCacheMaxEntri = 4096
+)
+
+func prodCacheGet(key string) (any, bool) {
+	prodCache.Lock()
+	defer prodCache.Unlock()
+	e, ok := prodCache.entries[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		return nil, false
+	}
+	return e.value, true
+}
+
+func prodCachePut(key string, value any) {
+	prodCache.Lock()
+	defer prodCache.Unlock()
+	if len(prodCache.entries) >= prodCacheMaxEntri {
+		// Bounded cache: drop everything past its TTL; if the map is still
+		// full of live entries (pathological), drop the whole map — it is a
+		// cache, not a store.
+		now := time.Now()
+		for k, e := range prodCache.entries {
+			if now.After(e.expiresAt) {
+				delete(prodCache.entries, k)
+			}
+		}
+		if len(prodCache.entries) >= prodCacheMaxEntri {
+			prodCache.entries = make(map[string]prodCacheEntry)
+		}
+	}
+	prodCache.entries[key] = prodCacheEntry{value: value, expiresAt: time.Now().Add(prodCacheTTL)}
+}
+
+// cachedProductionResult is productionResult behind the TTL cache, with
+// the TDS substitute graph already attached — enrichment happens once at
+// cache-fill time, so consumers never mutate the shared cached pointer.
+func cachedProductionResult(ctx context.Context, pn string) *lookup.Result {
+	norm := strings.ToUpper(strings.ReplaceAll(pn, "-", ""))
+	if v, ok := prodCacheGet("result:" + norm); ok {
+		if res, ok := v.(*lookup.Result); ok {
+			return res
+		}
+	}
+	res := productionResult(ctx, pn)
+	if res != nil && res.Part != nil {
+		if subs := cachedTdsSubsFull(ctx, res.Part.PN); len(subs) > 0 {
+			xrefs := make([]lookup.Xref, 0, len(subs))
+			for _, sub := range subs {
+				xrefs = append(xrefs, lookup.Xref{ToPN: sub.PartNumber, Kind: "substitute"})
+			}
+			res.Part.Xrefs = xrefs
+		}
+		prodCachePut("result:"+norm, res)
+	}
+	return res
+}
+
+// cachedTdsSubsFull is tdsSubsFull behind the TTL cache.
+func cachedTdsSubsFull(ctx context.Context, pn string) []tdsSub {
+	norm := strings.ToUpper(strings.ReplaceAll(pn, "-", ""))
+	if v, ok := prodCacheGet("subs:" + norm); ok {
+		if subs, ok := v.([]tdsSub); ok {
+			return subs
+		}
+	}
+	subs := tdsSubsFull(ctx, pn)
+	if subs != nil {
+		prodCachePut("subs:"+norm, subs)
+	}
+	return subs
+}
 
 // productionRequest builds a GET to the production parts search. The
 // browser-style User-Agent is required: Cloudflare's bot protection
@@ -114,47 +204,6 @@ func nonNil(ss ...*string) []string {
 	return out
 }
 
-// tdsSubstitutes fetches the production TDS substitutes for one part.
-func tdsSubstitutes(ctx context.Context, pn string) []lookup.Xref {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		ProductionTDSURL+"/"+url.PathEscape(pn), nil) // #nosec G704 -- fixed URL constant
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
-	resp, err := catalogClient.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	var parsed struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Substitutes []struct {
-				PartNumber string `json:"partNumber"`
-				Source     string `json:"matchSource"`
-			} `json:"substitutes"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil || !parsed.Success {
-		return nil
-	}
-	xrefs := make([]lookup.Xref, 0, len(parsed.Data.Substitutes))
-	for _, sub := range parsed.Data.Substitutes {
-		xrefs = append(xrefs, lookup.Xref{
-			ToPN:   sub.PartNumber,
-			Kind:   "substitute",
-			Source: sub.Source,
-		})
-	}
-	return xrefs
-}
-
 // handlePLookup is the production-enriched single-part lookup: identity
 // from the catalog, substitutes from TDS; local compendium as the offline
 // fallback. Used by the paste view to enrich every parsed row with REAL data.
@@ -172,17 +221,11 @@ func (s *Server) handlePLookup(w http.ResponseWriter, r *http.Request) {
 	respondResult(w, res, err)
 }
 
-// productionResultWithSubs is productionResult plus the TDS substitute
-// graph — the enrichment every consumer (paste rows, /plookup) carries.
+// productionResultWithSubs is the enriched production lookup (identity +
+// TDS substitutes) behind the TTL cache — what /plookup and paste rows
+// serve.
 func productionResultWithSubs(ctx context.Context, pn string) *lookup.Result {
-	res := productionResult(ctx, pn)
-	if res == nil || res.Part == nil {
-		return res
-	}
-	if subs := tdsSubstitutes(ctx, res.Part.PN); len(subs) > 0 {
-		res.Part.Xrefs = subs
-	}
-	return res
+	return cachedProductionResult(ctx, pn)
 }
 
 // tdsSub is one production substitute with the fields the export renders.
@@ -235,7 +278,7 @@ func (s *Server) handleLookupExport(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusBadRequest, map[string]string{"error": "missing pn parameter"})
 		return
 	}
-	res := productionResult(r.Context(), pn)
+	res := cachedProductionResult(r.Context(), pn)
 	if res == nil || res.Part == nil {
 		if lr, err := s.svc.Lookup(r.Context(), pn); err == nil {
 			res = &lr
@@ -248,25 +291,29 @@ func (s *Server) handleLookupExport(w http.ResponseWriter, r *http.Request) {
 	if res == nil {
 		res = &lookup.Result{Query: pn, Normalized: lookup.Normalize(pn), MatchedBy: lookup.MatchNone}
 	}
-	// One TDS fetch feeds both the Parts sheet cross-references and the
+	// One cached TDS fetch feeds both the Parts sheet substitutes and the
 	// Substitutes sheet — a second call to the same endpoint is a flake
 	// window, not a different answer.
-	subs := tdsSubsFull(r.Context(), identity)
+	subs := cachedTdsSubsFull(r.Context(), identity)
 	if res.Part != nil && len(subs) > 0 {
 		xrefs := make([]lookup.Xref, 0, len(subs))
 		for _, sub := range subs {
-			xrefs = append(xrefs, lookup.Xref{ToPN: sub.PartNumber, Kind: "substitute", Source: sub.Sources[0]})
+			xrefs = append(xrefs, lookup.Xref{ToPN: sub.PartNumber, Kind: "substitute"})
 		}
 		res.Part.Xrefs = xrefs
 	}
 	subRows := make([]export.SubRow, 0, len(subs))
 	for _, sub := range subs {
+		// Production relationship vocabulary is internal ("same_fsc", …);
+		// the deliverable carries the two broker-facing words only.
+		rel := "substitute"
+		if strings.EqualFold(sub.RelationshipType, "primary") {
+			rel = "primary"
+		}
 		subRows = append(subRows, export.SubRow{
-			PartNumber:    sub.PartNumber,
-			Relationship:  sub.RelationshipType,
-			Grade:         sub.MatchGrade,
-			ConfidencePct: int(math.Round(sub.Confidence * 100)),
-			Sources:       sub.Sources,
+			PartNumber:   sub.PartNumber,
+			Relationship: rel,
+			Description:  sub.Description,
 		})
 	}
 	xlsx, err := export.BuildSingle(export.Row{

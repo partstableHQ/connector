@@ -27,8 +27,6 @@ func buildService(t *testing.T) *lookup.Service {
 		 VALUES ('02CL197', '02cl197', 'LP ECC UDIMM 32GB DDR4-3200', 'memory')`,
 		`INSERT INTO xrefs (from_pn, to_pn, kind, source, source_detail)
 		 VALUES ('02CL197', '4X70J67435', 'substitute', 'broker_verified', 'lot #812')`,
-		`INSERT INTO holders (pn, holder, qty, condition, last_seen, source, source_detail)
-		 VALUES ('02CL197', 'Test Broker NL', 4, 'refurb', '2026-09-01', 'partner', 'feed sync')`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("seed: %v", err)
@@ -37,9 +35,9 @@ func buildService(t *testing.T) *lookup.Service {
 	return lookup.New(db)
 }
 
-// FM-9: one click must yield a valid .xlsx of the current table — headers,
-// quantities, citation columns — verifiable here by reading the produced
-// file back.
+// FM-9: one click must yield a valid .xlsx of the current table. The
+// format is the minimal broker deliverable (CEO ruling 2026-09-28):
+// PN, qty, description, substitute PNs — no sources, grades, holders.
 func TestBuildRoundTrip(t *testing.T) {
 	ctx := t.Context()
 	svc := buildService(t)
@@ -79,25 +77,61 @@ func TestBuildRoundTrip(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("rows = %d, want header + 2", len(got))
 	}
-	wantHeader := []string{"Your part", "Qty", "Description", "Category", "Cross-references", "Holders", "Source lines"}
+	wantHeader := []string{"Your part", "Qty", "Description", "Substitutes"}
 	for i, h := range wantHeader {
 		if got[0][i] != h {
 			t.Fatalf("header %d = %q, want %q", i, got[0][i], h)
 		}
 	}
-	// Found part: quantity and citations ride along.
+	// Found part: quantity and bare substitute PNs ride along — no source
+	// labels, no holders, no provenance columns.
 	if got[1][0] != "02CL197" || got[1][1] != "4" {
 		t.Fatalf("found row = %v", got[1])
 	}
-	if !strings.Contains(got[1][4], "4X70J67435") || !strings.Contains(got[1][4], "BROKER-VERIFIED") {
-		t.Fatalf("xref citation missing: %q", got[1][4])
+	if !strings.Contains(got[1][3], "4X70J67435") {
+		t.Fatalf("substitute PN missing: %q", got[1][3])
 	}
-	if !strings.Contains(got[1][5], "Test Broker NL") || !strings.Contains(got[1][5], "PARTNER") {
-		t.Fatalf("holder citation missing: %q", got[1][5])
+	if strings.Contains(got[1][3], "BROKER") || strings.Contains(got[1][3], "substitute ·") {
+		t.Fatalf("source annotation leaked into export: %q", got[1][3])
 	}
 	// Missing part: still present, honestly marked — the export is a
 	// complete copy of the paste.
 	if got[2][0] != "MYSTERY99PN" || !strings.Contains(got[2][2], "no record") {
 		t.Fatalf("missing row = %v", got[2])
+	}
+}
+
+// The single-part workbook carries a Substitutes sheet limited to PN,
+// relationship, description — no grade/confidence/source columns.
+func TestBuildSingleSubsSheet(t *testing.T) {
+	xlsx, err := BuildSingle(Row{
+		Entry: parse.Entry{PN: "02CL197", Norm: "02CL197", Qty: 1},
+	}, []SubRow{
+		{PartNumber: "00DH517", Relationship: "primary", Description: "IBM FlashSystem battery module"},
+		{PartNumber: "00ND094", Relationship: "compatible", Description: ""},
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	f, err := excelize.OpenReader(bytes.NewReader(xlsx))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	got, err := f.GetRows("Substitutes")
+	if err != nil {
+		t.Fatalf("subs rows: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("subs rows = %d, want header + 2", len(got))
+	}
+	wantHeader := []string{"Part number", "Relationship", "Description"}
+	for i, h := range wantHeader {
+		if got[0][i] != h {
+			t.Fatalf("header %d = %q, want %q", i, got[0][i], h)
+		}
+	}
+	if got[1][0] != "00DH517" || got[1][1] != "primary" {
+		t.Fatalf("sub row = %v", got[1])
 	}
 }
