@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ComponentDiagram from './ComponentDiagram';
 
 export interface Sub {
   partNumber: string;
@@ -30,6 +31,8 @@ export interface TDS {
   substitutes: Sub[];
   oemLink?: { url: string; label: string };
   brokerGuidance: { tips: string[]; warnings: string[]; mistakes: string[] };
+  templateMapping?: { template?: string; modelType?: string };
+  svgParams?: Record<string, string | undefined>;
 }
 
 export function copyText(t: string) {
@@ -99,6 +102,9 @@ export default function TdsSheet({ tds }: { tds: TDS }) {
           <b>{tds.brand || tds.manufacturer}</b> · {(cat1 || 'PART').toUpperCase()}{cat2 ? ` · ${cat2.toUpperCase()}` : ''}
         </div>
       </div>
+
+      {/* Component diagram — drawn from the production template + svgParams */}
+      <ComponentDiagram template={tds.templateMapping?.template} params={tds.svgParams} />
 
       {/* What you need to know (broker guidance) */}
       {(tds.brokerGuidance?.tips?.length || tds.brokerGuidance?.warnings?.length || tds.isHazmat) && (

@@ -6,6 +6,18 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Added (beta.28)
+
+- **Component diagram in the data sheet.** The production TDS payload's
+  `templateMapping` + `svgParams` now render as a brand-styled SVG card —
+  drive shapes for `drive-sff`/`storage-hdd` (capacity hero, speed,
+  form factor, connector block), a fan-and-ratings shape for `psu`
+  (wattage hero, efficiency badge), and a package shape for
+  `generic-component`. Only production's real fields are drawn; themes
+  via CSS variables. Verified live: 9TMRF → 1100W/PLATINUM/DELL PSU
+  diagram, 875488-B21 → HP 240GB drive diagram. (This closes the last
+  standing known gap from the 2026-09-22 handoff.)
+
 ### Changed (beta.27) — CEO feedback round
 
 - **One window.** The separate "Look up a part" and "Paste a list" tabs

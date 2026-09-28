@@ -741,6 +741,14 @@ tr:hover td { background: var(--bg-secondary); }
 .story-card p { font-size: 13px; line-height: 1.55; }
 .story-contact { margin-top: 6px; }
 
+/* ---- Component diagram in the data sheet ---- */
+.diagram-wrap { display: flex; justify-content: center; padding: 6px 0 2px; }
+.diagram-svg { width: 100%; max-width: 340px; height: auto; }
+.diagram-caption {
+  text-align: center; font-size: 11.5px; color: var(--text-muted);
+  margin-top: 4px; font-style: italic;
+}
+
 .panel-warn {
   background: var(--color-warning-bg); border: 1px solid var(--color-warning-bg);
   border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
