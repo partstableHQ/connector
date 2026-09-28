@@ -121,7 +121,7 @@ GitHub releases and the app self-updates. Self-hosting is supported, always.
 
 ## License
 
-[MIT](LICENSE).
+Code: [MIT](LICENSE). The bundled parts reference data: [CC BY-SA 4.0](DATA-LICENSE.md) — free to use, share-alike, credit PartsTable. Live partner stock feeds and ERP integrations are separate commercial terms.
 
 <div align="center">
 partstable.com/connector
