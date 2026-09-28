@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // Service serves the OAuth endpoints of FLOW.md over an http.Handler.
@@ -31,6 +33,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("POST /oauth/authorize", s.handleAuthorizeSubmit)
 	mux.HandleFunc("POST /oauth/token", s.handleToken)
 	mux.HandleFunc("GET /oauth/poll", s.handlePoll)
+	mux.HandleFunc("POST /oauth/password", s.handlePassword)
 	// Health lives under /oauth/* so a site-root mount can never shadow
 	// the main website's own routes in production.
 	mux.HandleFunc("GET /oauth/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -196,6 +199,40 @@ func (s *Service) handlePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "complete", "code": code})
+}
+
+// handlePassword rotates an account's password: POST /oauth/password with
+// `Authorization: Bearer <api_key>` and JSON {old_password, new_password}.
+// Lives under /oauth so the existing Caddy route reaches it; the current
+// password must verify, so a leaked key alone cannot take the account.
+func (s *Service) handlePassword(w http.ResponseWriter, r *http.Request) {
+	const prefix = "Bearer "
+	key := strings.TrimPrefix(r.Header.Get("Authorization"), prefix)
+	if key == "" || !strings.HasPrefix(r.Header.Get("Authorization"), prefix) {
+		respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing credentials"})
+		return
+	}
+	var req struct {
+		Old string `json:"old_password"`
+		New string `json:"new_password"`
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+	if err != nil || json.Unmarshal(body, &req) != nil || req.Old == "" || req.New == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "old_password and new_password are required"})
+		return
+	}
+	if err := s.store.ChangePassword(r.Context(), key, req.Old, req.New); err != nil {
+		switch {
+		case errors.Is(err, ErrWrongPassword):
+			respondJSON(w, http.StatusForbidden, map[string]string{"error": "current password is incorrect"})
+		case errors.Is(err, ErrWeakPassword):
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not change the password"})
+		}
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
 
 func respondJSON(w http.ResponseWriter, status int, payload any) {

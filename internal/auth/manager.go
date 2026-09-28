@@ -64,6 +64,16 @@ func (m *Manager) Status() Status {
 	return st
 }
 
+// APIKey returns the stored account credential, if the app is signed in.
+// Callers use it to act on behalf of the account (e.g. password rotation).
+func (m *Manager) APIKey() (string, bool) {
+	info, found, err := m.store.Load()
+	if err != nil || !found || info.APIKey == "" {
+		return "", false
+	}
+	return info.APIKey, true
+}
+
 // Login starts a browser sign-in and reports whether a fresh attempt is
 // now running. If an attempt is already waiting — say the password was
 // mistyped and the tab got closed — it is cancelled and a new one starts

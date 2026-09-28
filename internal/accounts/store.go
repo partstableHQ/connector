@@ -104,6 +104,38 @@ func (s *Store) SignInOrSignUp(ctx context.Context, email, password string) (nor
 	return email, apiKey, false, nil
 }
 
+// ChangePassword rotates an account's password, authenticating with the
+// current password. The account is addressed by its API key (the credential
+// the signed-in Connector holds); the old password must still verify, so a
+// leaked key alone cannot take over the account.
+func (s *Store) ChangePassword(ctx context.Context, apiKey, oldPassword, newPassword string) error {
+	if len(newPassword) < MinPasswordLen {
+		return ErrWeakPassword
+	}
+	var hash string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT password FROM accounts WHERE api_key = ?`, apiKey).Scan(&hash)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return ErrWrongPassword
+	case err != nil:
+		return fmt.Errorf("accounts: lookup by key: %w", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(oldPassword)) != nil {
+		return ErrWrongPassword
+	}
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("accounts: hash: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET password = ? WHERE api_key = ?`,
+		string(hashBytes), apiKey); err != nil {
+		return fmt.Errorf("accounts: update password: %w", err)
+	}
+	return nil
+}
+
 func validEmail(email string) bool {
 	if _, err := mail.ParseAddress(email); err != nil {
 		return false

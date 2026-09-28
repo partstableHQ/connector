@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -204,6 +205,77 @@ func TestFullFlowSignUpAndExchange(t *testing.T) {
 	codeStatus, _ = exchange(t, ts.URL+"/oauth/token", code, testVerifier, "http://127.0.0.1:61234/callback")
 	if codeStatus != http.StatusBadRequest {
 		t.Fatalf("reused code status %d, want 400", codeStatus)
+	}
+}
+
+// Password administration: rotate with the api key + current password,
+// then sign in with the new one. Wrong current password is refused; a
+// leaked key without the old password cannot take the account.
+func TestPasswordChange(t *testing.T) {
+	ts, _ := newTestService(t)
+	authorize := authorizeURL(ts.URL)
+
+	if status, _, _ := submit(t, authorize, "buyer@desk.io", "oldpassword1"); status != http.StatusFound {
+		t.Fatalf("signup status %d", status)
+	}
+	_, tok := exchange(t, ts.URL+"/oauth/token", func() string {
+		_, loc, _ := submit(t, authorize, "buyer@desk.io", "oldpassword1")
+		if loc == nil {
+			t.Fatal("no redirect on second sign-in")
+		}
+		return loc.Query().Get("code")
+	}(), testVerifier, "http://127.0.0.1:61234/callback")
+	key, _ := tok["api_key"].(string)
+	if !strings.HasPrefix(key, "pt_") {
+		t.Fatalf("api_key = %v", tok["api_key"])
+	}
+
+	change := func(oldPw, newPw string) (int, map[string]any) {
+		payload, _ := json.Marshal(map[string]string{"old_password": oldPw, "new_password": newPw})
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/oauth/password", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var body map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+
+	// Wrong current password refused.
+	if status, _ := change("wrongoldpass1", "newpassword1"); status != http.StatusForbidden {
+		t.Fatalf("wrong old password status %d, want 403", status)
+	}
+	// Weak new password refused.
+	if status, _ := change("oldpassword1", "short"); status != http.StatusBadRequest {
+		t.Fatalf("weak password status %d, want 400", status)
+	}
+	// Happy path.
+	if status, _ := change("oldpassword1", "newpassword1"); status != http.StatusOK {
+		t.Fatalf("change status %d, want 200", status)
+	}
+	// Old password no longer signs in (re-rendered form, non-redirect);
+	// the new one does.
+	if status, loc, _ := submit(t, authorize, "buyer@desk.io", "oldpassword1"); status == http.StatusFound || loc != nil {
+		t.Fatalf("old password still valid (status %d)", status)
+	}
+	if status, _, _ := submit(t, authorize, "buyer@desk.io", "newpassword1"); status != http.StatusFound {
+		t.Fatalf("new password rejected (status %d)", status)
+	}
+	// No credentials: unauthorized.
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/oauth/password",
+		strings.NewReader(`{"old_password":"a","new_password":"b"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no-auth status %d, want 401", resp.StatusCode)
 	}
 }
 

@@ -41,6 +41,33 @@ const colDefs: ColDef<GridRow>[] = [
   { field: 'category', headerName: 'Category', width: 140 },
 ];
 
+// The guided loop: paste → review → export. Closing the loop is the whole
+// product; the step rail shows where the user is and "Start again" turns
+// the crank once more.
+type Step = 1 | 2 | 3;
+
+function StepRail({ step }: { step: Step }) {
+  const steps = [
+    { n: 1 as const, label: 'Paste your parts' },
+    { n: 2 as const, label: 'Review your results' },
+    { n: 3 as const, label: 'Export to Excel' },
+  ];
+  return (
+    <div className="step-rail" role="list" aria-label="Progress">
+      {steps.map((s, i) => {
+        const state = step > s.n ? 'done' : step === s.n ? 'active' : 'todo';
+        return (
+          <div key={s.n} role="listitem" className="step-item">
+            {i > 0 && <span className={`step-link ${step > s.n ? 'done' : ''}`} aria-hidden="true" />}
+            <span className={`step-chip ${state}`}>{step > s.n ? '✓' : s.n}</span>
+            <span className={`step-label ${state}`}>{s.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Trigger a browser download robustly: the anchor must be in the document
 // and the object URL must outlive the click (WebView2 revokes eagerly).
 function downloadBlob(blob: Blob, name: string) {
@@ -54,6 +81,7 @@ function downloadBlob(blob: Blob, name: string) {
 }
 
 export default function PasteView() {
+  const [step, setStep] = useState<Step>(1);
   const [text, setText] = useState('');
   const [partCount, setPartCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -65,6 +93,20 @@ export default function PasteView() {
   const [selectedPns, setSelectedPns] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [exportedFile, setExportedFile] = useState('');
+
+  const startOver = () => {
+    setText('');
+    setPartCount(0);
+    setWarnings([]);
+    setRowData([]);
+    setActivePn(null);
+    setTds(null);
+    setSelectedPns([]);
+    setExportError('');
+    setExportedFile('');
+    setStep(1);
+  };
 
   const parseAndLookup = async () => {
     if (!text.trim()) return;
@@ -135,6 +177,7 @@ export default function PasteView() {
     await Promise.all(workers);
     setRowData(rows);
     setLoading(false);
+    setStep(2);
   };
 
   // Clicking anywhere on a row opens its technical data sheet in the right
@@ -190,9 +233,9 @@ export default function PasteView() {
   };
 
   // Export the ticked rows; with nothing ticked, the whole list. The server
-  // re-enriches from production so the file matches the grid.
-  const exportXLSX = async () => {
-    if (!text.trim() || exporting) return;
+  // re-enriches from the shared production cache so the file matches the grid.
+  const exportXLSX = async (): Promise<boolean> => {
+    if (!text.trim() || exporting) return false;
     setExporting(true);
     setExportError('');
     try {
@@ -203,82 +246,124 @@ export default function PasteView() {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       downloadBlob(await r.blob(), 'partstable-list.xlsx');
+      setExportedFile('partstable-list.xlsx');
+      return true;
     } catch {
       setExportError('Export failed — check your connection and try again.');
+      return false;
     } finally {
       setExporting(false);
     }
   };
 
+  const exportAndFinish = async () => {
+    if (await exportXLSX()) setStep(3);
+  };
+
   return (
     <div className="view-paste">
-      <p className="lede">Paste part numbers below, one per line.</p>
-      <textarea
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          setPartCount(smartParseDetailed(e.target.value).lines.length);
-        }}
-        rows={6}
-        className="paste-input"
-        placeholder={'02CL197 x4\n4X70J67435, 2\nSN730SDB512GB'}
-      />
-      <div className="actions">
-        <span className="part-count">{partCount} part{partCount !== 1 ? 's' : ''}</span>
-        <button className="btn-primary" onClick={() => void parseAndLookup()} disabled={loading}>
-          {loading ? 'Looking up…' : 'Look up list'}
-        </button>
-        <button
-          className="btn-secondary"
-          onClick={() => void exportXLSX()}
-          disabled={rowData.length === 0 || exporting}
-          title={selectedPns.length > 0 ? `Export the ${selectedPns.length} ticked row(s)` : 'Export all rows'}
-        >
-          {exporting ? 'Exporting…' : selectedPns.length > 0 ? `Export to Excel (${selectedPns.length})` : 'Export to Excel'}
-        </button>
-        {exportError && <span className="export-error">{exportError}</span>}
-      </div>
-      {warnings.length > 0 && (
-        <div className="panel-warn">
-          <strong>{warnings.length} line{warnings.length === 1 ? '' : 's'} need attention</strong> — nothing dropped:
-          <ul>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+      <StepRail step={step} />
+
+      {step === 1 && (
+        <div className="step-body">
+          <p className="lede">Paste part numbers below, one per line — an RFQ, BOM, email, or any list.</p>
+          <textarea
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setPartCount(smartParseDetailed(e.target.value).lines.length);
+            }}
+            rows={7}
+            className="paste-input"
+            placeholder={'02CL197 x4\n4X70J67435, 2\nSN730SDB512GB'}
+            autoFocus
+          />
+          <div className="actions">
+            <span className="part-count">{partCount} part{partCount !== 1 ? 's' : ''} detected</span>
+            <button className="btn-primary" onClick={() => void parseAndLookup()} disabled={loading || !text.trim()}>
+              {loading ? 'Looking up…' : 'Find my parts →'}
+            </button>
+          </div>
         </div>
       )}
-      {rowData.length > 0 && (
-        <div className="paste-split">
-          <div className="paste-grid">
-            <AgGridReact
-              columnDefs={colDefs}
-              rowData={rowData}
-              theme={gridTheme}
-              getRowId={(p) => String(p.data.pn)}
-              rowSelection={{
-                mode: 'multiRow',
-                checkboxes: true,
-                headerCheckbox: true,
-                enableClickSelection: true,
-              }}
-              onRowClicked={onRowClicked}
-              onSelectionChanged={onSelectionChanged}
-              onCellKeyDown={onCellKeyDown}
-              onGridReady={(p) => { (window as unknown as Record<string, unknown>).__ptGrid = p.api; }}
-              pagination
-              paginationPageSize={50}
-            />
-          </div>
-          <div className="paste-tds">
-            {tdsLoading && activePn && <p className="statrow">Loading data sheet for {activePn}…</p>}
-            {tds && <TdsSheet tds={tds} />}
-            {!tds && !tdsLoading && activePn && (
-              <div className="tds-card">
-                <h1 className="tds-title" style={{ fontSize: 20 }}>{activePn}</h1>
-                <p className="tds-overview">No data sheet available for this part.</p>
-              </div>
+
+      {step >= 2 && (
+        <>
+          {warnings.length > 0 && (
+            <div className="panel-warn">
+              <strong>{warnings.length} line{warnings.length === 1 ? '' : 's'} need attention</strong> — nothing dropped:
+              <ul>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+            </div>
+          )}
+          <div className="actions">
+            <span className="part-count">{rowData.length} part{rowData.length !== 1 ? 's' : ''}</span>
+            {selectedPns.length > 0 && (
+              <span className="part-count muted">{selectedPns.length} ticked for export</span>
             )}
-            {!activePn && (
-              <p className="statrow">Click a row (or use ↑/↓) to open its technical data sheet here.</p>
-            )}
+            <button className="btn-primary" onClick={() => void exportAndFinish()} disabled={exporting || rowData.length === 0}
+              title={selectedPns.length > 0 ? `Export the ${selectedPns.length} ticked row(s)` : 'Export all rows'}>
+              {exporting ? 'Exporting…' : selectedPns.length > 0 ? `Export to Excel (${selectedPns.length})` : 'Export to Excel'}
+            </button>
+            <button className="btn-secondary" onClick={startOver}>Start again</button>
+            {exportError && <span className="export-error">{exportError}</span>}
           </div>
+          <div className="paste-split">
+            <div className="paste-grid">
+              <AgGridReact
+                columnDefs={colDefs}
+                rowData={rowData}
+                theme={gridTheme}
+                getRowId={(p) => String(p.data.pn)}
+                rowSelection={{
+                  mode: 'multiRow',
+                  checkboxes: true,
+                  headerCheckbox: true,
+                  enableClickSelection: true,
+                }}
+                onRowClicked={onRowClicked}
+                onSelectionChanged={onSelectionChanged}
+                onCellKeyDown={onCellKeyDown}
+                onGridReady={(p) => { (window as unknown as Record<string, unknown>).__ptGrid = p.api; }}
+                pagination
+                paginationPageSize={50}
+              />
+            </div>
+            <div className="paste-tds">
+              {tdsLoading && activePn && <p className="statrow">Loading data sheet for {activePn}…</p>}
+              {tds && <TdsSheet tds={tds} />}
+              {!tds && !tdsLoading && activePn && (
+                <div className="tds-card">
+                  <h1 className="tds-title" style={{ fontSize: 20 }}>{activePn}</h1>
+                  <p className="tds-overview">No data sheet available for this part.</p>
+                </div>
+              )}
+              {!activePn && (
+                <p className="statrow">Click a row (or use ↑/↓) to open its technical data sheet here.</p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {step === 3 && (
+        <div className="step-done">
+          <div className="done-mark">✓</div>
+          <h2>List exported</h2>
+          <p className="muted">
+            {rowData.length} part{rowData.length !== 1 ? 's' : ''} went to <b>{exportedFile}</b> — check your Downloads.
+            {selectedPns.length > 0 ? ` (${selectedPns.length} ticked row${selectedPns.length !== 1 ? 's' : ''})` : ''}
+          </p>
+          <div className="actions" style={{ justifyContent: 'center' }}>
+            <button className="btn-primary" onClick={startOver}>Start again</button>
+            <button className="btn-secondary" onClick={() => setStep(2)}>Back to results</button>
+            <button className="btn-secondary" onClick={() => void exportAndFinish()} disabled={exporting}>
+              {exporting ? 'Exporting…' : 'Export again'}
+            </button>
+          </div>
+          <p className="story-line">
+            Built by IT brokers, for IT brokers — the parts reference for the secondary-market IT
+            industry. <a href="https://partstable.com" target="_blank" rel="noreferrer">partstable.com</a>
+          </p>
         </div>
       )}
     </div>

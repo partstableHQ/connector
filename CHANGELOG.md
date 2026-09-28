@@ -6,6 +6,31 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Added (beta.26) — CEO feedback round
+
+- **Branded Excel export.** The workbook opens on the PartsTable identity:
+  brand line and the locked reference line ("The parts reference for the
+  secondary-market IT industry. Free, open source, every fact cited."),
+  generated-at stamp, a white-on-brand-blue header row, bordered banded
+  rows, monospace part numbers, frozen header, and print setup (fit to
+  width). Same treatment on the Substitutes sheet.
+- **Guided loop in Paste a list:** 1 Paste your parts → 2 Review your
+  results → 3 Export to Excel, with a step rail showing progress. Export
+  lands on a done screen (parts exported, file name) with Start again to
+  run the loop once more, plus Back to results and Export again. The
+  done screen carries the broker story line.
+- **Settings upgrade.** Appearance: Light/Dark desktop themes (persisted;
+  more coming). Account: change-password form (current + new + confirm)
+  backed by `POST /auth/password` → accountd `POST /oauth/password`,
+  which verifies the current password server-side. Enterprise teasers:
+  BOM Lookup, EOL Intelligence, Quotations & Orders, Warehouse Shipping &
+  Receiving — each an Enterprise-badged card pointing at the partstable.com
+  waitlist. Our story: built by IT brokers (ssot 2026-09-20 /
+  connector-settings v1; copy rendered from marketing FACTS.md).
+- **accountd deployed to production** with the password endpoint
+  (existing /oauth/* Caddy route, no Caddy changes; previous binary
+  backed up before the swap; health verified through the public domain).
+
 ### Fixed (beta.25) — CEO feedback round
 
 - **Excel export now matches the grid.** The export pipeline re-fetched

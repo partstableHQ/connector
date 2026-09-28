@@ -29,8 +29,9 @@ const keychainAccount = "api"
 // development and staging.
 const (
 	DefaultAuthorizeURL = "https://partstable.com/oauth/authorize"
-	DefaultTokenURL     = "https://partstable.com/oauth/token" // #nosec G101 -- endpoint URL, not a credential
-	DefaultPollURL      = "https://partstable.com/oauth/poll"  // #nosec G101 -- endpoint URL, not a credential
+	DefaultTokenURL     = "https://partstable.com/oauth/token"    // #nosec G101 -- endpoint URL, not a credential
+	DefaultPollURL      = "https://partstable.com/oauth/poll"     // #nosec G101 -- endpoint URL, not a credential
+	DefaultPasswordURL  = "https://partstable.com/oauth/password" // #nosec G101 -- endpoint URL, not a credential
 	ClientID            = "connector-desktop"
 	EnvBaseURL          = "PARTSTABLE_AUTH_BASEURL"
 )
@@ -54,6 +55,7 @@ type Config struct {
 	AuthorizeURL string
 	TokenURL     string
 	PollURL      string
+	PasswordURL  string
 	ClientID     string
 }
 
@@ -65,6 +67,7 @@ func LoadConfig() Config {
 			AuthorizeURL: base + "/oauth/authorize",
 			TokenURL:     base + "/oauth/token",
 			PollURL:      base + "/oauth/poll",
+			PasswordURL:  base + "/oauth/password",
 			ClientID:     ClientID,
 		}
 	}
@@ -72,6 +75,7 @@ func LoadConfig() Config {
 		AuthorizeURL: DefaultAuthorizeURL,
 		TokenURL:     DefaultTokenURL,
 		PollURL:      DefaultPollURL,
+		PasswordURL:  DefaultPasswordURL,
 		ClientID:     ClientID,
 	}
 }

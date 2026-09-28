@@ -539,6 +539,87 @@ tr:hover td { background: var(--bg-secondary); }
 
 .export-error { color: var(--color-error, #CF222E); font-size: 12px; align-self: center; }
 
+/* ---- Guided loop: paste → review → export ---- */
+.step-rail {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 var(--space-3); padding: 10px 14px;
+  background: var(--bg-secondary); border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg); flex-wrap: wrap;
+}
+.step-item { display: flex; align-items: center; gap: 8px; }
+.step-link { width: 34px; height: 2px; background: var(--border-default); display: inline-block; }
+.step-link.done { background: var(--color-primary); }
+.step-chip {
+  width: 24px; height: 24px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+  border: 2px solid var(--border-default); color: var(--text-muted);
+  background: var(--bg-primary);
+}
+.step-chip.active { border-color: var(--color-primary); color: var(--color-primary); box-shadow: 0 0 0 3px rgba(0, 85, 221, 0.12); }
+.step-chip.done { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
+.step-label { font-size: 12.5px; color: var(--text-muted); font-weight: 500; }
+.step-label.active { color: var(--text-primary); font-weight: 600; }
+.step-label.done { color: var(--color-primary); }
+
+.step-done {
+  text-align: center; padding: 48px 16px 32px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.done-mark {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: #E8F5EC; color: #1A7F37;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px; font-weight: 700; margin-bottom: 8px;
+}
+.step-done h2 { margin: 0; font-size: 22px; }
+.story-line { margin-top: 40px; font-size: 12px; color: var(--text-muted); }
+.story-line a { color: var(--color-primary); }
+
+/* ---- Settings: theme picker, password form, enterprise apps ---- */
+.theme-picker { display: flex; gap: 10px; margin: var(--space-2) 0; }
+.theme-option {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border-default); background: var(--bg-primary);
+  color: var(--text-primary); border-radius: var(--radius-md);
+  padding: 8px 16px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+}
+.theme-option:hover { border-color: var(--color-primary); }
+.theme-option.active { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(0, 85, 221, 0.12); }
+.theme-swatch { width: 18px; height: 18px; border-radius: 6px; border: 1px solid var(--border-default); display: inline-block; }
+.theme-swatch[data-swatch="light"] { background: linear-gradient(180deg, #FFFFFF 50%, #F1F5F9 50%); }
+.theme-swatch[data-swatch="dark"] { background: linear-gradient(180deg, #1E2A38 50%, #0F1923 50%); }
+
+.pw-form { display: flex; flex-direction: column; gap: 8px; max-width: 340px; margin-top: var(--space-2); }
+.pw-form input {
+  padding: 8px 10px; border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); font-size: 13px;
+  background: var(--bg-primary); color: var(--text-primary);
+}
+.pw-form input:focus { outline: none; border-color: var(--color-primary); }
+.pw-note { font-size: 12px; color: var(--color-error, #CF222E); align-self: center; }
+.pw-note.ok { color: #1A7F37; }
+
+.apps-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: var(--space-2); }
+@media (max-width: 760px) { .apps-grid { grid-template-columns: 1fr; } }
+.app-card {
+  display: flex; gap: 12px; align-items: flex-start;
+  border: 1px solid var(--border-default); border-radius: var(--radius-lg);
+  padding: 12px 14px; background: var(--bg-secondary);
+}
+.app-icon { font-size: 22px; line-height: 1.2; }
+.app-name { font-weight: 600; font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+.app-badge {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+  color: var(--color-primary); border: 1px solid var(--color-primary);
+  border-radius: 999px; padding: 1px 8px; text-transform: uppercase;
+}
+.app-blurb { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+.story-card { border-left: 3px solid var(--color-primary); }
+.story-card p { font-size: 13px; line-height: 1.55; }
+.story-contact { margin-top: 6px; }
+
 .panel-warn {
   background: var(--color-warning-bg); border: 1px solid var(--color-warning-bg);
   border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);

@@ -6,9 +6,14 @@ import { API, type Health } from './api';
 
 type View = 'lookup' | 'paste' | 'settings';
 
+export type Theme = 'light' | 'dark';
+
 export default function App() {
   const [view, setView] = useState<View>('lookup');
   const [health, setHealth] = useState<Health | null>(null);
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem('pt-theme') as Theme) || 'light',
+  );
 
   useEffect(() => {
     fetch(`${API}/health`)
@@ -17,18 +22,12 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Apply theme before render
+  // Theme is applied at the document root; every surface keys off
+  // [data-theme] in index.css.
   useEffect(() => {
-    const saved = localStorage.getItem('pt-theme') ?? 'light';
-    document.documentElement.setAttribute('data-theme', saved);
-  }, []);
-
-  const toggleTheme = () => {
-    const cur = document.documentElement.getAttribute('data-theme');
-    const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('pt-theme', next);
-  };
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('pt-theme', theme);
+  }, [theme]);
 
   return (
     <>
@@ -43,10 +42,14 @@ export default function App() {
         <span className="vintage">
           {health?.compendium
             ? `compendium rev ${health.compendium.vintage.slice(0, 10)} · ${health.compendium.part_count.toLocaleString()} parts`
-            : 'no compendium loaded'}
+            : 'live catalog'}
         </span>
-        <button className="theme-toggle" onClick={toggleTheme} title="Toggle light/dark">
-          {document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '☾'}
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          title="Toggle light/dark"
+        >
+          {theme === 'dark' ? '☀' : '☾'}
         </button>
       </header>
       <main className="content">
@@ -59,7 +62,9 @@ export default function App() {
         </nav>
         {view === 'lookup' && <LookupView />}
         {view === 'paste' && <PasteView />}
-        {view === 'settings' && <SettingsView health={health} onHealth={setHealth} />}
+        {view === 'settings' && (
+          <SettingsView health={health} onHealth={setHealth} theme={theme} onTheme={setTheme} />
+        )}
       </main>
     </>
   );

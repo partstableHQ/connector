@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -94,6 +95,7 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("GET /lookup/export", s.handleLookupExport)
 	mux.HandleFunc("POST /auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("POST /auth/password", s.handleAuthPassword)
 	mux.HandleFunc("POST /update/check", s.handleUpdateCheck)
 	mux.HandleFunc("POST /update/apply", s.handleUpdateApply)
 	mux.HandleFunc("GET /settings", s.handleGetSettings)
@@ -262,6 +264,49 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, map[string]bool{"signed_in": false})
+}
+
+// handleAuthPassword proxies password rotation to the account service:
+// the app forwards {old_password, new_password} with the stored account
+// key; the service additionally verifies the current password, so a
+// leaked key alone cannot take the account.
+func (s *Server) handleAuthPassword(w http.ResponseWriter, r *http.Request) {
+	if s.authm == nil {
+		respond(w, http.StatusServiceUnavailable, map[string]string{"error": "account manager unavailable"})
+		return
+	}
+	key, ok := s.authm.APIKey()
+	if !ok {
+		respond(w, http.StatusUnauthorized, map[string]string{"error": "not signed in"})
+		return
+	}
+	var req struct {
+		Old string `json:"old_password"`
+		New string `json:"new_password"`
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<10))
+	if err != nil || json.Unmarshal(body, &req) != nil || req.Old == "" || req.New == "" {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "old_password and new_password are required"})
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"old_password": req.Old, "new_password": req.New})
+	req2, err := http.NewRequestWithContext(r.Context(), http.MethodPost, auth.DefaultPasswordURL, bytes.NewReader(payload))
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", "Bearer "+key)
+	resp, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		respond(w, http.StatusBadGateway, map[string]string{"error": "account service unreachable"})
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(respBody)
 }
 
 func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {

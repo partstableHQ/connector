@@ -35,9 +35,32 @@ func buildService(t *testing.T) *lookup.Service {
 	return lookup.New(db)
 }
 
+// headerRowOf returns the index (0-based, as GetRows indexes) of the
+// branded table's header row and its cells.
+func headerRowOf(t *testing.T, got [][]string, want []string) int {
+	t.Helper()
+	for i, row := range got {
+		if len(row) > 0 && row[0] == want[0] && len(row) >= len(want) {
+			ok := true
+			for j, h := range want {
+				if row[j] != h {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				return i
+			}
+		}
+	}
+	t.Fatalf("header row %v not found in %d rows (first row: %v)", want, len(got), got[0])
+	return -1
+}
+
 // FM-9: one click must yield a valid .xlsx of the current table. The
-// format is the minimal broker deliverable (CEO ruling 2026-09-28):
-// PN, qty, description, substitute PNs — no sources, grades, holders.
+// format is the minimal broker deliverable (CEO ruling 2026-09-28) in the
+// branded form: PN, qty, description, substitute PNs — no sources, grades,
+// holders — under a PartsTable brand band.
 func TestBuildRoundTrip(t *testing.T) {
 	ctx := t.Context()
 	svc := buildService(t)
@@ -74,30 +97,42 @@ func TestBuildRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rows: %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("rows = %d, want header + 2", len(got))
-	}
-	wantHeader := []string{"Your part", "Qty", "Description", "Substitutes"}
-	for i, h := range wantHeader {
-		if got[0][i] != h {
-			t.Fatalf("header %d = %q, want %q", i, got[0][i], h)
+	// Brand band: the workbook opens on the PartsTable identity.
+	brandFound := false
+	for i, row := range got {
+		if i > 3 {
+			break
 		}
+		for _, c := range row {
+			if c == "PartsTable Connector" {
+				brandFound = true
+			}
+		}
+	}
+	if !brandFound {
+		t.Fatalf("brand band missing in first rows: %v", got[:min(2, len(got))])
+	}
+	hdr := headerRowOf(t, got, []string{"Your part", "Qty", "Description", "Substitutes"})
+	if len(got) != hdr+3 {
+		t.Fatalf("rows = %d, want header at %d + 2", len(got), hdr)
 	}
 	// Found part: quantity and bare substitute PNs ride along — no source
 	// labels, no holders, no provenance columns.
-	if got[1][0] != "02CL197" || got[1][1] != "4" {
-		t.Fatalf("found row = %v", got[1])
+	found := got[hdr+1]
+	if found[0] != "02CL197" || found[1] != "4" {
+		t.Fatalf("found row = %v", found)
 	}
-	if !strings.Contains(got[1][3], "4X70J67435") {
-		t.Fatalf("substitute PN missing: %q", got[1][3])
+	if !strings.Contains(found[3], "4X70J67435") {
+		t.Fatalf("substitute PN missing: %q", found[3])
 	}
-	if strings.Contains(got[1][3], "BROKER") || strings.Contains(got[1][3], "substitute ·") {
-		t.Fatalf("source annotation leaked into export: %q", got[1][3])
+	if strings.Contains(found[3], "BROKER") || strings.Contains(found[3], "substitute ·") {
+		t.Fatalf("source annotation leaked into export: %q", found[3])
 	}
 	// Missing part: still present, honestly marked — the export is a
 	// complete copy of the paste.
-	if got[2][0] != "MYSTERY99PN" || !strings.Contains(got[2][2], "no record") {
-		t.Fatalf("missing row = %v", got[2])
+	missing := got[hdr+2]
+	if missing[0] != "MYSTERY99PN" || !strings.Contains(missing[2], "no record") {
+		t.Fatalf("missing row = %v", missing)
 	}
 }
 
@@ -122,16 +157,12 @@ func TestBuildSingleSubsSheet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("subs rows: %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("subs rows = %d, want header + 2", len(got))
+	hdr := headerRowOf(t, got, []string{"Part number", "Relationship", "Description"})
+	if len(got) != hdr+3 {
+		t.Fatalf("subs rows = %d, want header at %d + 2", len(got), hdr)
 	}
-	wantHeader := []string{"Part number", "Relationship", "Description"}
-	for i, h := range wantHeader {
-		if got[0][i] != h {
-			t.Fatalf("header %d = %q, want %q", i, got[0][i], h)
-		}
-	}
-	if got[1][0] != "00DH517" || got[1][1] != "primary" {
-		t.Fatalf("sub row = %v", got[1])
+	sub := got[hdr+1]
+	if sub[0] != "00DH517" || sub[1] != "primary" {
+		t.Fatalf("sub row = %v", sub)
 	}
 }
