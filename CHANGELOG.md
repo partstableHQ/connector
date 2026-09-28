@@ -6,6 +6,26 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Changed (beta.27) — CEO feedback round
+
+- **One window.** The separate "Look up a part" and "Paste a list" tabs
+  are gone: a single Paste-your-parts window handles one part or a
+  hundred (a one-line paste is just a one-row list, same review grid,
+  same data-sheet panel, same export). Navigation is a gear icon;
+  clicking the brand returns home.
+- **Animated hero.** The app opens on the PartsTable Connector story:
+  glowing brand mark, staggered title entrance, sweeping accent line,
+  the locked reference lines, and four stat chips (187,147 parts ·
+  312,913 cross-references · 3,777 machines · 36 brands — measured
+  2026-09-20, marketing FACTS.md cited layer). Real canonical part
+  numbers (95Y4812, 02CL197, 9TMRF, GJW8F, DL380 G10, TRJT7, 95Y4814)
+  drift through the backdrop. Below the hero, the white space carries
+  the step-by-step instructions: three numbered how-cards, then the
+  paste box. Stamp: ssot 2026-09-20 / connector-home v1.
+- **Privacy card removed** (CEO order 2026-09-28: the user doesn't get
+  the choice). The update-check stays on silently as designed; the
+  settings surface no longer shows it.
+
 ### Added (beta.26) — CEO feedback round
 
 - **Branded Excel export.** The workbook opens on the PartsTable identity:

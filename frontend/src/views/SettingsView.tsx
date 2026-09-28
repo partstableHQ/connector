@@ -45,10 +45,6 @@ export default function SettingsView({ health, onHealth, theme, onTheme }: {
 
   useEffect(() => {
     fetch(`${API}/health`).then((r) => r.json()).then(onHealth).catch(() => {});
-    fetch(`${API}/settings`).then((r) => r.json()).then((s: { telemetry_opt_out: boolean }) => {
-      const cb = document.querySelector<HTMLInputElement>('#settings-telemetry');
-      if (cb) cb.checked = !s.telemetry_opt_out;
-    }).catch(() => {});
   }, []);
 
   const checkUpdates = async () => {
@@ -189,32 +185,6 @@ export default function SettingsView({ health, onHealth, theme, onTheme }: {
           )}
         </div>
         {updateNote && <p className="muted">{updateNote}</p>}
-      </div>
-
-      <div className="card">
-        <h3>Privacy</h3>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            id="settings-telemetry"
-            defaultChecked
-            onChange={(e) => {
-              fetch(`${API}/settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telemetry_opt_out: !e.target.checked }),
-              }).catch(() => {});
-            }}
-          />
-          <span>
-            <strong>Send anonymous update checks</strong>
-            <br />
-            <span className="muted">
-              The only telemetry: app version, OS, random install ID.
-              No part numbers, no queries, no email.
-            </span>
-          </span>
-        </label>
       </div>
 
       <div className="card">

@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
-import LookupView from './views/LookupView';
-import PasteView from './views/PasteView';
+import HomeView from './views/HomeView';
 import SettingsView from './views/SettingsView';
 import { API, type Health } from './api';
 
-type View = 'lookup' | 'paste' | 'settings';
+type View = 'home' | 'settings';
 
 export type Theme = 'light' | 'dark';
 
 export default function App() {
-  const [view, setView] = useState<View>('lookup');
+  const [view, setView] = useState<View>('home');
   const [health, setHealth] = useState<Health | null>(null);
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem('pt-theme') as Theme) || 'light',
@@ -32,7 +31,11 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <div className="brand">
+        <div className="brand" role="button" tabIndex={0}
+          onClick={() => setView('home')}
+          onKeyDown={(e) => { if (e.key === 'Enter') setView('home'); }}
+          title="PartsTable Connector — home"
+        >
           <span className="brand-mark">PT</span>
           <span className="brand-name">
             PartsTable <span className="brand-sub">Connector</span>
@@ -51,17 +54,17 @@ export default function App() {
         >
           {theme === 'dark' ? '☀' : '☾'}
         </button>
+        <button
+          className={`gear-btn ${view === 'settings' ? 'active' : ''}`}
+          onClick={() => setView(view === 'settings' ? 'home' : 'settings')}
+          title="Settings"
+          aria-label="Settings"
+        >
+          ⚙
+        </button>
       </header>
       <main className="content">
-        <nav className="tabs">
-          {(['lookup', 'paste', 'settings'] as View[]).map((v) => (
-            <button key={v} className={`tab ${view === v ? 'active' : ''}`} onClick={() => setView(v)}>
-              {v === 'lookup' ? 'Look up a part' : v === 'paste' ? 'Paste a list' : 'Settings'}
-            </button>
-          ))}
-        </nav>
-        {view === 'lookup' && <LookupView />}
-        {view === 'paste' && <PasteView />}
+        {view === 'home' && <HomeView />}
         {view === 'settings' && (
           <SettingsView health={health} onHealth={setHealth} theme={theme} onTheme={setTheme} />
         )}

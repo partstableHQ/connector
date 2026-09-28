@@ -5,7 +5,7 @@
 ; Built by: ISCC beta-installer.iss  (staging: files sit next to this script)
 
 #define MyAppName "PartsTable Connector"
-#define MyAppVersion "0.1.0-beta.26"
+#define MyAppVersion "0.1.0-beta.27"
 #define MyAppPublisher "PartsTable"
 #define MyAppExeName "partstable.exe"
 

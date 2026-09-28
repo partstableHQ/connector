@@ -539,6 +539,127 @@ tr:hover td { background: var(--bg-secondary); }
 
 .export-error { color: var(--color-error, #CF222E); font-size: 12px; align-self: center; }
 
+/* ---- Hero: animated brand intro (HomeView) ---- */
+.hero {
+  position: relative;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(1200px 320px at 50% -80px, rgba(0, 85, 221, 0.10), transparent 65%),
+    var(--bg-secondary);
+  overflow: hidden;
+  padding: 44px 24px 34px;
+  text-align: center;
+  margin-bottom: var(--space-3);
+}
+.hero-glow {
+  position: absolute; top: -140px; left: 50%;
+  width: 640px; height: 280px; transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(0, 85, 221, 0.16), transparent);
+  filter: blur(6px);
+  animation: heroPulse 5.5s ease-in-out infinite;
+}
+@keyframes heroPulse {
+  0%, 100% { opacity: 0.7; transform: translateX(-50%) scale(1); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.06); }
+}
+.float-chip {
+  position: absolute; bottom: -34px;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: var(--text-muted); opacity: 0;
+  border: 1px solid var(--border-default); border-radius: 999px;
+  background: var(--bg-primary);
+  padding: 3px 10px;
+  animation-name: floatUp; animation-timing-function: linear; animation-iteration-count: infinite;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@keyframes floatUp {
+  0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+  12% { opacity: 0.55; }
+  85% { opacity: 0.35; }
+  100% { transform: translateY(-260px) rotate(4deg); opacity: 0; }
+}
+.hero-inner { position: relative; max-width: 720px; margin: 0 auto; }
+.hero-mark {
+  width: 52px; height: 52px; font-size: 19px; border-radius: 14px;
+  margin: 0 auto 14px;
+  animation: markGlow 3.2s ease-in-out infinite;
+}
+@keyframes markGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 85, 221, 0.28); }
+  50% { box-shadow: 0 0 0 10px rgba(0, 85, 221, 0.0); }
+}
+.hero-title {
+  margin: 0 0 6px; font-size: 34px; line-height: 1.15; letter-spacing: -0.02em;
+}
+.hero-word {
+  display: inline-block;
+  opacity: 0; animation: fadeUp 0.6s ease forwards;
+}
+.hero-word-accent { color: var(--color-primary); }
+.hero-sweep {
+  height: 3px; width: 120px; margin: 10px auto 12px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  background-size: 200% 100%;
+  animation: sweep 2.8s ease-in-out infinite, fadeUp 0.6s ease 0.4s forwards;
+  opacity: 0;
+}
+@keyframes sweep {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.hero-tag { margin: 4px 0 2px; font-size: 17px; font-weight: 600; color: var(--text-primary); opacity: 0; animation: fadeUp 0.6s ease forwards; }
+.hero-sub { margin: 0 0 18px; font-size: 13px; color: var(--text-muted); opacity: 0; animation: fadeUp 0.6s ease forwards; }
+.hero-stats {
+  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+  opacity: 0; animation: fadeUp 0.6s ease forwards;
+}
+.hero-stat {
+  border: 1px solid var(--border-default); background: var(--bg-primary);
+  border-radius: var(--radius-md); padding: 8px 16px; min-width: 110px;
+}
+.hero-stat b { display: block; font-size: 17px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.hero-stat span { font-size: 11px; color: var(--text-muted); }
+.hero-measure { margin: 14px 0 0; font-size: 10.5px; color: var(--text-muted); opacity: 0; animation: fadeUp 0.6s ease forwards; }
+
+/* Step-by-step how-cards under the hero */
+.how-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+  margin-bottom: var(--space-3);
+}
+@media (max-width: 860px) { .how-grid { grid-template-columns: 1fr; } }
+.how-card {
+  position: relative;
+  border: 1px solid var(--border-default); border-radius: var(--radius-lg);
+  background: var(--bg-primary); padding: 16px 16px 14px;
+  opacity: 0; animation: fadeUp 0.6s ease forwards;
+}
+.how-num {
+  position: absolute; top: -10px; left: 14px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--color-primary); color: #fff;
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.how-icon { font-size: 24px; margin-bottom: 6px; }
+.how-card h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--text-primary); }
+.how-card p { margin: 0; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+/* Topbar gear (Settings) */
+.gear-btn {
+  margin-left: 6px; width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: #93C5FD;
+  font-size: 15px; cursor: pointer; line-height: 1;
+}
+.gear-btn:hover { border-color: rgba(147, 197, 253, 0.35); }
+.gear-btn.active { border-color: rgba(147, 197, 253, 0.6); background: rgba(147, 197, 253, 0.12); }
+.brand { cursor: pointer; }
+
 /* ---- Guided loop: paste → review → export ---- */
 .step-rail {
   display: flex; align-items: center; gap: 10px;

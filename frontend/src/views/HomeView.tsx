@@ -68,6 +68,20 @@ function StepRail({ step }: { step: Step }) {
   );
 }
 
+// Hero facts — rendered from the marketing FACTS ledger, cited layer,
+// measured 2026-09-20. Never rounded, never mixed with catalog scale.
+const HERO_STATS = [
+  { value: '187,147', label: 'parts' },
+  { value: '312,913', label: 'cross-references' },
+  { value: '3,777', label: 'machines' },
+  { value: '36', label: 'brands' },
+];
+
+// Floating chips in the hero backdrop are REAL canonical records from the
+// FACTS ledger (95Y4812 hero part, 02CL197 battery module, 9TMRF PSU,
+// GJW8F verified substitute, DL380 Gen10 machine).
+const FLOATING_PNS = ['95Y4812', '02CL197', '9TMRF', 'GJW8F', 'DL380 G10', 'TRJT7', '95Y4814'];
+
 // Trigger a browser download robustly: the anchor must be in the document
 // and the object URL must outlive the click (WebView2 revokes eagerly).
 function downloadBlob(blob: Blob, name: string) {
@@ -80,7 +94,7 @@ function downloadBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
 }
 
-export default function PasteView() {
+export default function HomeView() {
   const [step, setStep] = useState<Step>(1);
   const [text, setText] = useState('');
   const [partCount, setPartCount] = useState(0);
@@ -261,12 +275,80 @@ export default function PasteView() {
   };
 
   return (
-    <div className="view-paste">
+    <div className="view-home">
+      {/* ── Hero: animated brand intro ─────────────────────────────── */}
+      <section className="hero">
+        <div className="hero-bg" aria-hidden="true">
+          {FLOATING_PNS.map((pn, i) => (
+            <span
+              key={pn}
+              className="float-chip"
+              style={{
+                left: `${6 + (i * 13.5) % 88}%`,
+                animationDelay: `${i * 1.7}s`,
+                animationDuration: `${11 + (i % 3) * 3}s`,
+              }}
+            >
+              {pn}
+            </span>
+          ))}
+          <span className="hero-glow" />
+        </div>
+        <div className="hero-inner">
+          <div className="brand-mark hero-mark" aria-hidden="true">PT</div>
+          <h1 className="hero-title">
+            <span className="hero-word" style={{ animationDelay: '0.1s' }}>PartsTable</span>{' '}
+            <span className="hero-word hero-word-accent" style={{ animationDelay: '0.25s' }}>Connector</span>
+          </h1>
+          <div className="hero-sweep" aria-hidden="true" />
+          <p className="hero-tag" style={{ animationDelay: '0.45s' }}>
+            The parts reference, on your computer.
+          </p>
+          <p className="hero-sub" style={{ animationDelay: '0.6s' }}>
+            Built by IT brokers, for the secondary-market IT industry. Free, open source, every fact cited.
+          </p>
+          <div className="hero-stats" style={{ animationDelay: '0.8s' }}>
+            {HERO_STATS.map((s) => (
+              <div className="hero-stat" key={s.label}>
+                <b className="mono">{s.value}</b>
+                <span>{s.label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="hero-measure" style={{ animationDelay: '0.95s' }}>
+            Calibrated data — measured 2026-09-20 · Every fact cited — source, trust tier, and measured precision.
+          </p>
+        </div>
+      </section>
+
       <StepRail step={step} />
+
+      {/* ── Step-by-step instructions (the white space below the hero) ── */}
+      {step === 1 && (
+        <div className="how-grid">
+          <div className="how-card" style={{ animationDelay: '1.05s' }}>
+            <div className="how-num">1</div>
+            <div className="how-icon" aria-hidden="true">📋</div>
+            <h4>Paste your parts</h4>
+            <p>One part or a hundred — an RFQ, BOM, email, or any list. Quantities and conditions are picked up automatically.</p>
+          </div>
+          <div className="how-card" style={{ animationDelay: '1.15s' }}>
+            <div className="how-num">2</div>
+            <div className="how-icon" aria-hidden="true">🔍</div>
+            <h4>Review your results</h4>
+            <p>Every line comes back with real descriptions, categories, and verified substitutes. Click any row for its full data sheet.</p>
+          </div>
+          <div className="how-card" style={{ animationDelay: '1.25s' }}>
+            <div className="how-num">3</div>
+            <div className="how-icon" aria-hidden="true">📊</div>
+            <h4>Export to Excel</h4>
+            <p>A branded, quote-ready spreadsheet — tick the rows you want, export, done. The loop is closed.</p>
+          </div>
+        </div>
+      )}
 
       {step === 1 && (
         <div className="step-body">
-          <p className="lede">Paste part numbers below, one per line — an RFQ, BOM, email, or any list.</p>
           <textarea
             value={text}
             onChange={(e) => {
@@ -275,7 +357,7 @@ export default function PasteView() {
             }}
             rows={7}
             className="paste-input"
-            placeholder={'02CL197 x4\n4X70J67435, 2\nSN730SDB512GB'}
+            placeholder={'95Y4812 x4\n4X70J67435, 2\n02CL197'}
             autoFocus
           />
           <div className="actions">
