@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +17,10 @@ import (
 // calibrated dataset (187K parts). The Connector's local compendium is the
 // offline cache; when online, the typeahead hits this for live results.
 const ProductionPartsSearchURL = "https://partstable.com/api/v1/parts/search"
+
+// ProductionTDSURL is the canonical read model TDS endpoint
+// (Constitution §4.1: GET /api/public/v1/tds/:pn).
+const ProductionTDSURL = "https://partstable.com/api/public/v1/tds"
 
 var catalogClient = &http.Client{Timeout: 10 * time.Second}
 
@@ -106,7 +111,38 @@ func nonNil(ss ...*string) []string {
 	return out
 }
 
-// handleCatalogSearch proxies the production parts search: the IQ-Reseller-
+// handleTDS proxies the production TDS endpoint: the full technical data
+// sheet for one part — substitutes, confidence, lifecycle, broker guidance.
+func (s *Server) handleTDS(w http.ResponseWriter, r *http.Request) {
+	pn := strings.TrimPrefix(r.URL.Path, "/tds/")
+	if pn == "" {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "missing pn"})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		ProductionTDSURL+"/"+url.PathEscape(pn), nil) // #nosec G704 -- fixed URL constant
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
+	resp, err := catalogClient.Do(req) // #nosec G704 -- fixed URL constant (ProductionTDSURL)
+	if err != nil {
+		respond(w, http.StatusBadGateway, map[string]string{"error": "TDS service unreachable"})
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		respond(w, resp.StatusCode, map[string]string{"error": fmt.Sprintf("TDS lookup failed (HTTP %d)", resp.StatusCode)})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
 // style typeahead dropdown is populated with REAL part data. The production
 // response shape is passed through (partNumber, description, manufacturer,
 // category1/2, listPrice, lastCost) so the UI renders exactly what the
