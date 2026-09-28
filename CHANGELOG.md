@@ -6,6 +6,21 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Fixed (beta.22)
+
+- The TDS sheet no longer fabricates data: the title derives from the
+  part's own category ("875488-B21 — SSD Specs", was hardcoded
+  "Battery Module Specs"); the lifecycle card renders only what the
+  production payload asserts (status; invented RoHS/EAR99/ESD badges
+  dropped); the breadcrumb and brand line use category1/2; and the real
+  production data-confidence value renders as a labeled bar.
+- The paste grid enriches rows concurrently (bounded, 6 at a time) — a
+  100-line RFQ no longer crawls serially — and its Manufacturer column is
+  renamed Category to match the data it shows.
+- Verified end-to-end against the live production catalog (187K parts):
+  typeahead, TDS sheet, and all four rows of a realistic RFQ paste return
+  real identity, categories, and verified substitutes.
+
 ### Added
 
 - Release pipeline (FM-20, slice 8): macOS build job (native CGO, uploads
