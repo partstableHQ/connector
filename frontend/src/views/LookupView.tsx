@@ -20,6 +20,8 @@ export default function LookupView() {
   const [selected, setSelected] = useState<CatalogHit | null>(null);
   const [tds, setTds] = useState<TDS | null>(null);
   const [tdsLoading, setTdsLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [status, setStatus] = useState('Type 2+ characters — live search of the PartsTable catalog.');
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,17 +81,22 @@ export default function LookupView() {
   // One-part Excel export: the looked-up part plus its verified substitutes,
   // straight from the same data the sheet shows.
   const exportXLSX = () => {
-    if (!selected) return;
+    if (!selected || exporting) return;
+    setExporting(true);
+    setExportError('');
     fetch(`${API}/lookup/export?pn=${encodeURIComponent(selected.partNumber)}`)
       .then((r) => { if (!r.ok) throw new Error('export failed'); return r.blob(); })
       .then((b) => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(b);
         a.download = `partstable-${selected.partNumber}.xlsx`;
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(a.href);
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
       })
-      .catch(() => {});
+      .catch(() => setExportError('Export failed — check your connection and try again.'))
+      .finally(() => setExporting(false));
   };
 
   return (
@@ -144,8 +151,11 @@ export default function LookupView() {
 
       {selected && (
         <div className="actions" style={{ marginTop: 'var(--space-2)' }}>
-          <button className="btn-secondary" onClick={exportXLSX}>Export to Excel</button>
+          <button className="btn-secondary" onClick={exportXLSX} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export to Excel'}
+          </button>
           <span className="statrow" style={{ margin: 0 }}>part + verified substitutes, .xlsx</span>
+          {exportError && <span className="export-error">{exportError}</span>}
         </div>
       )}
 

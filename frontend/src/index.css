@@ -537,6 +537,8 @@ tr:hover td { background: var(--bg-secondary); }
 }
 .btn-secondary:hover { border-color: var(--color-primary) !important; color: var(--color-primary) !important; }
 
+.export-error { color: var(--color-error, #CF222E); font-size: 12px; align-self: center; }
+
 .panel-warn {
   background: var(--color-warning-bg); border: 1px solid var(--color-warning-bg);
   border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);

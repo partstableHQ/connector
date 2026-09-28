@@ -6,6 +6,25 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Changed (beta.24) — CEO feedback round
+
+- **Checkbox selection with select all / deselect all.** The paste grid
+  carries per-row checkboxes plus a tri-state header checkbox; the export
+  button shows the tick count and exports exactly the ticked rows (or the
+  whole list when nothing is ticked). Backed by the JSON variant of
+  `POST /paste/export` (`{paste, selected}`); the raw-text path is
+  unchanged and test-covered.
+- **Export to Excel button fixed.** Downloads now go through a document-
+  anchored link with a deferred object-URL revoke (the detached-anchor +
+  immediate-revoke pattern is unreliable in WebView2), the button shows
+  an "Exporting…" state, and failures surface inline instead of dying
+  silently. Same treatment on the Lookup view's export.
+- **Keyboard navigation, PartsTable style.** ArrowDown/ArrowUp move the
+  active row (selection follows, grid auto-scrolls) and open its data
+  sheet in the right panel; Enter re-opens the active row's sheet.
+- Clicking anywhere on a row opens the data sheet AND ticks the row into
+  the export selection.
+
 ### Changed (beta.23) — CEO feedback round
 
 - **Pricing removed everywhere.** The Connector never shows list price or

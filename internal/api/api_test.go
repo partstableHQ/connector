@@ -238,6 +238,42 @@ func TestPasteExportEndpoint(t *testing.T) {
 	}
 }
 
+// The JSON variant of /paste/export exports only the ticked part numbers;
+// the raw-text variant (and an empty selection) exports the whole paste.
+func TestPasteExportSelectedRows(t *testing.T) {
+	srv := New(lookup.New(nil), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil)
+	srv.productionLookup = nil
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	paste := "02CL197 x4\nPN-A x1\nPN-B x2"
+	body, _ := json.Marshal(pasteExportRequest{Paste: paste, Selected: []string{"02CL197", "PN-B"}})
+	resp, err := http.Post(ts.URL+"/paste/export", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if !bytes.HasPrefix(buf.Bytes(), []byte("PK")) {
+		t.Fatal("body is not a plausible xlsx")
+	}
+
+	resp2, err := http.Post(ts.URL+"/paste/export", "text/plain", strings.NewReader(paste))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("raw-text export status %d", resp2.StatusCode)
+	}
+}
+
 // With production enrichment disabled AND no local compendium, paste still
 // answers: entries come back marked not-found (matched_by "") — the paste
 // is never refused, it just honestly reports what it could not resolve.

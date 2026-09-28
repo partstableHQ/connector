@@ -410,13 +410,42 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, pasteResponse{Entries: entries, Warnings: warnings})
 }
 
+// pasteExportRequest is the JSON body variant of /paste/export: the paste
+// text plus the subset of part numbers the user ticked. When selected is
+// empty the whole paste is exported.
+type pasteExportRequest struct {
+	Paste    string   `json:"paste"`
+	Selected []string `json:"selected"`
+}
+
 func (s *Server) handlePasteExport(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPasteBytes))
-	if err != nil {
-		respond(w, http.StatusBadRequest, map[string]string{"error": "paste too large or unreadable"})
-		return
+	var text string
+	var selected map[string]bool
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPasteBytes))
+		if err != nil {
+			respond(w, http.StatusBadRequest, map[string]string{"error": "paste too large or unreadable"})
+			return
+		}
+		var req pasteExportRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			respond(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: " + err.Error()})
+			return
+		}
+		text = req.Paste
+		selected = make(map[string]bool, len(req.Selected))
+		for _, pn := range req.Selected {
+			selected[pn] = true
+		}
+	} else {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPasteBytes))
+		if err != nil {
+			respond(w, http.StatusBadRequest, map[string]string{"error": "paste too large or unreadable"})
+			return
+		}
+		text = string(body)
 	}
-	entries, _, err := s.pasteRows(r.Context(), string(body))
+	entries, _, err := s.pasteRows(r.Context(), text)
 	if errors.Is(err, lookup.ErrNoCompendium) {
 		respond(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 		return
@@ -427,6 +456,9 @@ func (s *Server) handlePasteExport(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]export.Row, 0, len(entries))
 	for _, e := range entries {
+		if len(selected) > 0 && !selected[e.Entry.PN] {
+			continue
+		}
 		rows = append(rows, export.Row{Entry: e.Entry, Res: e.Result})
 	}
 	xlsx, err := export.Build(rows)

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   ModuleRegistry, AllCommunityModule, themeQuartz,
-  type ColDef, type SelectionChangedEvent,
+  type ColDef, type RowClickedEvent, type SelectionChangedEvent, type CellKeyDownEvent,
 } from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
 import { smartParseDetailed } from '../lib/smartParse';
@@ -24,7 +24,7 @@ const gridTheme = themeQuartz.withParams({
 });
 
 // Quote-builder layout: the grid carries identity only; substitutes and the
-// full data sheet live in the right-hand panel for the selected row.
+// full data sheet live in the right-hand panel for the active row.
 interface GridRow {
   pn: string;
   qty: number;
@@ -41,23 +41,39 @@ const colDefs: ColDef<GridRow>[] = [
   { field: 'category', headerName: 'Category', width: 140 },
 ];
 
+// Trigger a browser download robustly: the anchor must be in the document
+// and the object URL must outlive the click (WebView2 revokes eagerly).
+function downloadBlob(blob: Blob, name: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
+}
+
 export default function PasteView() {
   const [text, setText] = useState('');
   const [partCount, setPartCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rowData, setRowData] = useState<GridRow[]>([]);
-  const [selectedPn, setSelectedPn] = useState<string | null>(null);
+  const [activePn, setActivePn] = useState<string | null>(null);
   const [tds, setTds] = useState<TDS | null>(null);
   const [tdsLoading, setTdsLoading] = useState(false);
+  const [selectedPns, setSelectedPns] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   const parseAndLookup = async () => {
     if (!text.trim()) return;
     setLoading(true);
     setWarnings([]);
     setRowData([]);
-    setSelectedPn(null);
+    setActivePn(null);
     setTds(null);
+    setSelectedPns([]);
 
     const result = smartParseDetailed(text);
     if (result.lines.length === 0) {
@@ -121,35 +137,77 @@ export default function PasteView() {
     setLoading(false);
   };
 
-  // Selecting a row opens its technical data sheet in the right panel —
-  // the quote-builder flow: rows on the left, full TDS on the right.
-  const onSelectionChanged = (e: SelectionChangedEvent<GridRow>) => {
-    const row = e.api.getSelectedRows()[0];
-    if (!row) return;
-    setSelectedPn(row.pn);
+  // Clicking anywhere on a row opens its technical data sheet in the right
+  // panel; the row is also checked into the export selection (multi).
+  const onRowClicked = (e: RowClickedEvent<GridRow>) => {
+    if (!e.data) return;
+    openTds(e.data.pn);
+  };
+
+  const openTds = (pn: string) => {
+    setActivePn(pn);
     setTds(null);
     setTdsLoading(true);
-    fetch(`http://127.0.0.1:7878/tds/${encodeURIComponent(row.pn)}`)
+    fetch(`http://127.0.0.1:7878/tds/${encodeURIComponent(pn)}`)
       .then((r) => r.json())
       .then((b) => { if (b.success && b.data) setTds(b.data); })
       .catch(() => {})
       .finally(() => setTdsLoading(false));
   };
 
+  const onSelectionChanged = (e: SelectionChangedEvent<GridRow>) => {
+    setSelectedPns(e.api.getSelectedRows().map((r) => r.pn));
+  };
+
+  // PartsTable-style keyboard navigation: ArrowDown / ArrowUp move the
+  // active row (selection follows) and open its data sheet; Enter opens it.
+  const onCellKeyDown = (e: CellKeyDownEvent<GridRow>) => {
+    const kev = e.event as KeyboardEvent | undefined;
+    if (!kev) return;
+    if (kev.key !== 'ArrowDown' && kev.key !== 'ArrowUp' && kev.key !== 'Enter') return;
+    kev.preventDefault();
+    kev.stopPropagation();
+    const api = e.api;
+    const displayed: GridRow[] = [];
+    api.forEachNodeAfterFilterAndSort((n) => { if (n.data) displayed.push(n.data); });
+    if (displayed.length === 0) return;
+    const curIdx = activePn ? displayed.findIndex((r) => r.pn === activePn) : -1;
+    let nextIdx: number;
+    if (kev.key === 'Enter') {
+      if (curIdx < 0) return;
+      openTds(displayed[curIdx].pn);
+      return;
+    }
+    if (curIdx < 0) nextIdx = 0;
+    else nextIdx = kev.key === 'ArrowDown' ? Math.min(curIdx + 1, displayed.length - 1) : Math.max(curIdx - 1, 0);
+    if (nextIdx === curIdx) return;
+    api.deselectAll();
+    const node = api.getRowNode(displayed[nextIdx].pn);
+    if (!node) return;
+    node.setSelected(true);
+    if (node.rowIndex != null) api.ensureIndexVisible(node.rowIndex, 'middle');
+    openTds(displayed[nextIdx].pn);
+  };
+
+  // Export the ticked rows; with nothing ticked, the whole list. The server
+  // re-enriches from production so the file matches the grid.
   const exportXLSX = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || exporting) return;
+    setExporting(true);
+    setExportError('');
     try {
       const r = await fetch('http://127.0.0.1:7878/paste/export', {
-        method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paste: text, selected: selectedPns }),
       });
-      if (!r.ok) return;
-      const blob = await r.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'partstable-list.xlsx';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch { /* silent */ }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      downloadBlob(await r.blob(), 'partstable-list.xlsx');
+    } catch {
+      setExportError('Export failed — check your connection and try again.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -170,9 +228,15 @@ export default function PasteView() {
         <button className="btn-primary" onClick={() => void parseAndLookup()} disabled={loading}>
           {loading ? 'Looking up…' : 'Look up list'}
         </button>
-        <button className="btn-secondary" onClick={() => void exportXLSX()} disabled={rowData.length === 0}>
-          Export to Excel
+        <button
+          className="btn-secondary"
+          onClick={() => void exportXLSX()}
+          disabled={rowData.length === 0 || exporting}
+          title={selectedPns.length > 0 ? `Export the ${selectedPns.length} ticked row(s)` : 'Export all rows'}
+        >
+          {exporting ? 'Exporting…' : selectedPns.length > 0 ? `Export to Excel (${selectedPns.length})` : 'Export to Excel'}
         </button>
+        {exportError && <span className="export-error">{exportError}</span>}
       </div>
       {warnings.length > 0 && (
         <div className="panel-warn">
@@ -188,24 +252,31 @@ export default function PasteView() {
               rowData={rowData}
               theme={gridTheme}
               getRowId={(p) => String(p.data.pn)}
-              rowSelection={{ mode: 'singleRow' }}
+              rowSelection={{
+                mode: 'multiRow',
+                checkboxes: true,
+                headerCheckbox: true,
+                enableClickSelection: true,
+              }}
+              onRowClicked={onRowClicked}
               onSelectionChanged={onSelectionChanged}
+              onCellKeyDown={onCellKeyDown}
               onGridReady={(p) => { (window as unknown as Record<string, unknown>).__ptGrid = p.api; }}
               pagination
               paginationPageSize={50}
             />
           </div>
           <div className="paste-tds">
-            {tdsLoading && selectedPn && <p className="statrow">Loading data sheet for {selectedPn}…</p>}
+            {tdsLoading && activePn && <p className="statrow">Loading data sheet for {activePn}…</p>}
             {tds && <TdsSheet tds={tds} />}
-            {!tds && !tdsLoading && selectedPn && (
+            {!tds && !tdsLoading && activePn && (
               <div className="tds-card">
-                <h1 className="tds-title" style={{ fontSize: 20 }}>{selectedPn}</h1>
+                <h1 className="tds-title" style={{ fontSize: 20 }}>{activePn}</h1>
                 <p className="tds-overview">No data sheet available for this part.</p>
               </div>
             )}
-            {!selectedPn && (
-              <p className="statrow">Select a row to open its technical data sheet here.</p>
+            {!activePn && (
+              <p className="statrow">Click a row (or use ↑/↓) to open its technical data sheet here.</p>
             )}
           </div>
         </div>
