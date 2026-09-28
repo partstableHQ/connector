@@ -1,13 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/partstableHQ/connector/internal/lookup"
 )
 
 // ProductionPartsSearchURL is the production parts search API — the full
@@ -16,6 +18,20 @@ import (
 const ProductionPartsSearchURL = "https://partstable.com/api/v1/parts/search"
 
 var catalogClient = &http.Client{Timeout: 10 * time.Second}
+
+// productionRequest builds a GET to the production parts search. The
+// browser-style User-Agent is required: Cloudflare's bot protection
+// rejects the default Go client UA.
+func productionRequest(ctx context.Context, query, limit string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		ProductionPartsSearchURL+"?q="+url.QueryEscape(query)+"&limit="+url.QueryEscape(limit), nil) // #nosec G704 -- fixed URL constant
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
+	return req, nil
+}
 
 type catalogSearchResult struct {
 	PartNumber   string  `json:"partNumber"`
@@ -36,6 +52,60 @@ type catalogSearchResponse struct {
 	} `json:"data"`
 }
 
+// productionResult resolves one part against the production catalog and
+// maps the hit into the lookup.Result shape the UI already renders.
+// Returns nil when the production API is unreachable or has no match —
+// callers then fall back to the local compendium.
+func productionResult(ctx context.Context, pn string) *lookup.Result {
+	req, err := productionRequest(ctx, pn, "1")
+	if err != nil {
+		return nil
+	}
+	resp, err := catalogClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var parsed catalogSearchResponse
+	if err := json.Unmarshal(body, &parsed); err != nil || !parsed.Success || len(parsed.Data.Results) == 0 {
+		return nil
+	}
+	h := parsed.Data.Results[0]
+	// The search is fuzzy — accept the hit only when the normalized identity
+	// matches what was asked for (no near-misses passed off as answers).
+	if !strings.EqualFold(strings.ReplaceAll(h.PartNumber, "-", ""), strings.ReplaceAll(pn, "-", "")) {
+		return nil
+	}
+	category := strings.TrimSpace(strings.Join(nonNil(h.Category1, h.Category2), " · "))
+	return &lookup.Result{
+		Query:      pn,
+		Normalized: strings.ToUpper(strings.ReplaceAll(pn, "-", "")),
+		MatchedBy:  lookup.MatchExact,
+		Part: &lookup.Part{
+			PN:          h.PartNumber,
+			DisplayPN:   h.PartNumber,
+			Description: h.Description,
+			Category:    category,
+			Xrefs:       []lookup.Xref{},
+			Holders:     []lookup.Holder{},
+		},
+	}
+}
+
+func nonNil(ss ...*string) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if s != nil && *s != "" {
+			out = append(out, *s)
+		}
+	}
+	return out
+}
+
 // handleCatalogSearch proxies the production parts search: the IQ-Reseller-
 // style typeahead dropdown is populated with REAL part data. The production
 // response shape is passed through (partNumber, description, manufacturer,
@@ -51,18 +121,16 @@ func (s *Server) handleCatalogSearch(w http.ResponseWriter, r *http.Request) {
 	if limit == "" {
 		limit = "8"
 	}
-	// #nosec G704 -- the destination is the fixed constant
-	// ProductionPartsSearchURL; only query parameters are caller-controlled,
-	// and both are escaped. This is the intended outbound proxy.
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
-		ProductionPartsSearchURL+"?q="+url.QueryEscape(q)+"&limit="+url.QueryEscape(limit), nil)
+	req, err := productionRequest(r.Context(), q, limit)
 	if err != nil {
 		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := catalogClient.Do(req) // #nosec G704 -- fixed URL constant, see above
-	if err != nil {
+	resp, err := catalogClient.Do(req) // #nosec G704 -- fixed URL constant via productionRequest
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		// Offline: degrade to the local compendium so the typeahead still works.
 		local, lerr := s.svc.Search(r.Context(), q, 8)
 		if lerr != nil {
@@ -74,8 +142,8 @@ func (s *Server) handleCatalogSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil || resp.StatusCode != http.StatusOK {
-		respond(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("production search failed (HTTP %d)", resp.StatusCode)})
+	if err != nil {
+		respond(w, http.StatusBadGateway, map[string]string{"error": "production search response unreadable"})
 		return
 	}
 	var parsed catalogSearchResponse

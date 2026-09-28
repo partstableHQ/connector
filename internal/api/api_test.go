@@ -38,7 +38,9 @@ func testServer(t *testing.T) *httptest.Server {
 			t.Fatalf("seed: %v", err)
 		}
 	}
-	ts := httptest.NewServer(New(lookup.New(db), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil).Handler())
+	srv := New(lookup.New(db), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil)
+	srv.productionLookup = nil // keep tests offline: local compendium only
+	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts
 }
@@ -236,8 +238,13 @@ func TestPasteExportEndpoint(t *testing.T) {
 	}
 }
 
+// With production enrichment disabled AND no local compendium, paste still
+// answers: entries come back marked not-found (matched_by "") — the paste
+// is never refused, it just honestly reports what it could not resolve.
 func TestPasteWithoutCompendium(t *testing.T) {
-	ts := httptest.NewServer(New(lookup.New(nil), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil).Handler())
+	srv := New(lookup.New(nil), "test-version", DefaultPort, auth.NewManager(auth.Config{}, auth.NewMemoryStore()), nil)
+	srv.productionLookup = nil // offline test: no production enrichment
+	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
 	resp, err := http.Post(ts.URL+"/paste", "text/plain", strings.NewReader("02CL197"))
@@ -245,8 +252,15 @@ func TestPasteWithoutCompendium(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("status %d, want 503", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200 (degrades to not-found, never refuses)", resp.StatusCode)
+	}
+	var body pasteResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Entries) != 1 || body.Entries[0].Result == nil || body.Entries[0].Result.MatchedBy != "" {
+		t.Fatalf("entries = %+v, want one not-found entry", body.Entries)
 	}
 }
 

@@ -101,7 +101,8 @@ body {
 
 /* ---- layout ---- */
 .content { padding: var(--space-3); flex: 1; }
-#view-lookup { position: relative; }
+/* The React component uses className (not id) — the popover anchors here. */
+.view-lookup { position: relative; }
 .hidden { display: none; }
 
 /* ---- tabs ---- */
@@ -150,13 +151,16 @@ body {
 .search-wrap .sbtn:hover { background: var(--color-primary); }
 
 .lookup-pop {
-  display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
   z-index: 30; background: var(--bg-primary);
   border: 1px solid var(--border-default); border-radius: var(--radius-lg);
   box-shadow: 0 4px 14px rgba(17,20,24,0.08); overflow: hidden;
   max-height: 300px; overflow-y: auto;
 }
-.lookup-pop.open { display: block; }
+/* React mounts/unmounts the popover — no .open class needed. The old
+   display:none base rule here is what hid the dropdown while the status
+   line said "8 matches" (the CSS/JS visibility contract diverged). */
+.search-wrap { position: relative; }
 .pop-row {
   display: flex; gap: 10px; align-items: baseline; padding: 8px 14px;
   cursor: pointer; border-top: 1px solid var(--border-divider);

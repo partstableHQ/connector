@@ -60,9 +60,12 @@ type Server struct {
 	authm   *auth.Manager
 	updatem *update.Manager
 	openURL func(string) error
-	version string
-	addr    string
-	http    *http.Server
+	// productionLookup enriches paste/lookup with live production data;
+	// nil disables it (tests). Wired in New() to productionResult.
+	productionLookup func(ctx context.Context, pn string) *lookup.Result
+	version          string
+	addr             string
+	http             *http.Server
 }
 
 // SetURLOpener wires the system-browser opener for outbound links (the
@@ -96,6 +99,7 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("POST /settings", s.handlePostSettings)
 	mux.HandleFunc("POST /more", s.handleMore)
 	mux.HandleFunc("GET /catalog/search", s.handleCatalogSearch)
+	s.productionLookup = productionResult
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -357,17 +361,27 @@ type pasteResponse struct {
 }
 
 // pasteRows is the shared path of both paste verbs: parse the raw text,
-// look up every aggregated entry. The parser-warns rule means the
-// warnings list rides along no matter what.
+// look up every aggregated entry — production catalog first (real 187K-part
+// data), local compendium as the offline fallback. The parser-warns rule
+// means the warnings list rides along no matter what.
 func (s *Server) pasteRows(ctx context.Context, text string) ([]pasteEntry, []parse.Warning, error) {
 	pr := parse.Parse(text)
 	entries := make([]pasteEntry, 0, len(pr.Entries))
 	for _, e := range pr.Entries {
-		res, err := s.svc.Lookup(ctx, e.Norm)
-		if err != nil {
-			return nil, nil, err
+		var res *lookup.Result
+		if s.productionLookup != nil {
+			if ph := s.productionLookup(ctx, e.Norm); ph != nil {
+				res = ph
+			}
 		}
-		entries = append(entries, pasteEntry{Entry: e, Result: &res})
+		if res == nil {
+			if r, lerr := s.svc.Lookup(ctx, e.Norm); lerr == nil {
+				res = &r
+			} else {
+				res = &lookup.Result{Query: e.PN, Normalized: e.Norm, MatchedBy: lookup.MatchNone}
+			}
+		}
+		entries = append(entries, pasteEntry{Entry: e, Result: res})
 	}
 	return entries, pr.Warnings, nil
 }
