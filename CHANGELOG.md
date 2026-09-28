@@ -6,6 +6,24 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Changed (beta.23) — CEO feedback round
+
+- **Pricing removed everywhere.** The Connector never shows list price or
+  last cost (CEO ruling 2026-09-28); specifications carry identity and
+  data confidence only. (The prices shown were live production data, and
+  data confidence is the production value for the part — 30% means the
+  production record for that PN itself is thinly sourced.)
+- **Paste view rebuilt as the quote-builder layout:** rows on the left
+  (AG Grid, single-row selection), full technical data sheet for the
+  selected row in the right-hand panel — the production quote-builder
+  flow instead of a flat wide table.
+- **Copy + export everywhere.** Every part number in a data sheet carries
+  a copy-to-clipboard chip; the Lookup view gained an Export to Excel
+  button backed by the new `GET /lookup/export` (one part + its verified
+  substitutes on a second sheet). Paste exports now carry the same
+  verified substitutes the grid shows, and empty descriptions no longer
+  ship as "(no record in compendium rev)" when a real record exists.
+
 ### Fixed (beta.22)
 
 - The TDS sheet no longer fabricates data: the title derives from the

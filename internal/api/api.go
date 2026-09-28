@@ -91,6 +91,7 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("POST /bulk", s.handleBulk)
 	mux.HandleFunc("POST /paste", s.handlePaste)
 	mux.HandleFunc("POST /paste/export", s.handlePasteExport)
+	mux.HandleFunc("GET /lookup/export", s.handleLookupExport)
 	mux.HandleFunc("POST /auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("POST /update/check", s.handleUpdateCheck)
@@ -101,7 +102,10 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("GET /catalog/search", s.handleCatalogSearch)
 	mux.HandleFunc("GET /plookup", s.handlePLookup)
 	mux.HandleFunc("GET /tds/", s.handleTDS)
-	s.productionLookup = productionResult
+	// productionLookup enriches paste rows with live production data AND
+	// its verified substitutes (the same identity the grid shows) — the
+	// Excel export must match what the user sees, not a degraded copy.
+	s.productionLookup = productionResultWithSubs
 	s.http = &http.Server{
 		Handler:           s.cors(mux),
 		ReadHeaderTimeout: 5 * time.Second,

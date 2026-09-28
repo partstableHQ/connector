@@ -43,33 +43,76 @@ func citationLabel(source string) string {
 	}
 }
 
+// SubRow is one verified substitute in the single-part export.
+type SubRow struct {
+	PartNumber    string
+	Relationship  string
+	Grade         string
+	ConfidencePct int
+	Sources       []string
+}
+
 // Build renders the rows into .xlsx bytes.
 func Build(rows []Row) ([]byte, error) {
 	f := excelize.NewFile()
 	defer func() { _ = f.Close() }()
+	if err := writePartsSheet(f, rows); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if _, err := f.WriteTo(&buf); err != nil {
+		return nil, fmt.Errorf("export: write: %w", err)
+	}
+	return buf.Bytes(), nil
+}
 
+// BuildSingle renders one looked-up part plus its verified substitutes
+// into a two-sheet workbook — the deliverable behind the Lookup view's
+// Export to Excel button.
+func BuildSingle(r Row, subs []SubRow) ([]byte, error) {
+	f := excelize.NewFile()
+	defer func() { _ = f.Close() }()
+	if err := writePartsSheet(f, []Row{r}); err != nil {
+		return nil, err
+	}
+	if len(subs) > 0 {
+		if err := writeSubsSheet(f, subs); err != nil {
+			return nil, err
+		}
+	}
+	var buf bytes.Buffer
+	if _, err := f.WriteTo(&buf); err != nil {
+		return nil, fmt.Errorf("export: write: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// writePartsSheet fills the workbook's first sheet with the parsed rows
+// (your part / qty / description / category / cross-references / holders /
+// source lines) and freezes the header.
+func writePartsSheet(f *excelize.File, rows []Row) error {
 	// The fresh workbook's default sheet is the only one; make it ours.
 	if err := f.SetSheetName(f.GetSheetName(0), sheet); err != nil {
-		return nil, fmt.Errorf("export: rename sheet: %w", err)
+		return fmt.Errorf("export: rename sheet: %w", err)
 	}
 
 	headers := []string{"Your part", "Qty", "Description", "Category", "Cross-references", "Holders", "Source lines"}
 	bold, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
 	if err != nil {
-		return nil, fmt.Errorf("export: header style: %w", err)
+		return fmt.Errorf("export: header style: %w", err)
 	}
 	wrap, err := f.NewStyle(&excelize.Style{Alignment: &excelize.Alignment{WrapText: true, Vertical: "top"}})
 	if err != nil {
-		return nil, fmt.Errorf("export: wrap style: %w", err)
+		return fmt.Errorf("export: wrap style: %w", err)
 	}
 
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		if err := f.SetCellValue(sheet, cell, h); err != nil {
-			return nil, fmt.Errorf("export: header %s: %w", h, err)
+			return fmt.Errorf("export: header %s: %w", h, err)
 		}
 		if err := f.SetCellStyle(sheet, cell, cell, bold); err != nil {
-			return nil, fmt.Errorf("export: header style %s: %w", h, err)
+			return fmt.Errorf("export: header style %s: %w", h, err)
 		}
 	}
 
@@ -78,7 +121,9 @@ func Build(rows []Row) ([]byte, error) {
 		desc, category := "(no record in compendium rev)", ""
 		var xrefs, holders []string
 		if r.Res != nil && r.Res.Part != nil {
-			desc = r.Res.Part.Description
+			if r.Res.Part.Description != "" {
+				desc = r.Res.Part.Description
+			}
 			category = r.Res.Part.Category
 			for _, x := range r.Res.Part.Xrefs {
 				xrefs = append(xrefs, fmt.Sprintf("%s (%s · %s)", x.ToPN, x.Kind, citationLabel(x.Source)))
@@ -112,11 +157,11 @@ func Build(rows []Row) ([]byte, error) {
 		for c, v := range values {
 			cell, _ := excelize.CoordinatesToCellName(c+1, rowN)
 			if err := f.SetCellValue(sheet, cell, v); err != nil {
-				return nil, fmt.Errorf("export: row %d: %w", rowN, err)
+				return fmt.Errorf("export: row %d: %w", rowN, err)
 			}
 			if c >= 2 { // description onward is multi-line text
 				if err := f.SetCellStyle(sheet, cell, cell, wrap); err != nil {
-					return nil, fmt.Errorf("export: row %d style: %w", rowN, err)
+					return fmt.Errorf("export: row %d style: %w", rowN, err)
 				}
 			}
 		}
@@ -125,7 +170,7 @@ func Build(rows []Row) ([]byte, error) {
 	widths := map[string]float64{"A": 20, "B": 7, "C": 46, "D": 14, "E": 52, "F": 56, "G": 12}
 	for col, w := range widths {
 		if err := f.SetColWidth(sheet, col, col, w); err != nil {
-			return nil, fmt.Errorf("export: width %s: %w", col, err)
+			return fmt.Errorf("export: width %s: %w", col, err)
 		}
 	}
 	if err := f.SetPanes(sheet, &excelize.Panes{
@@ -134,12 +179,65 @@ func Build(rows []Row) ([]byte, error) {
 		TopLeftCell: "A2",
 		ActivePane:  "bottomLeft",
 	}); err != nil {
-		return nil, fmt.Errorf("export: freeze header: %w", err)
+		return fmt.Errorf("export: freeze header: %w", err)
 	}
+	return nil
+}
 
-	var buf bytes.Buffer
-	if _, err := f.WriteTo(&buf); err != nil {
-		return nil, fmt.Errorf("export: write: %w", err)
+// writeSubsSheet appends the Substitutes sheet for the single-part export.
+func writeSubsSheet(f *excelize.File, subs []SubRow) error {
+	const subsSheet = "Substitutes"
+	if _, err := f.NewSheet(subsSheet); err != nil {
+		return fmt.Errorf("export: substitutes sheet: %w", err)
 	}
-	return buf.Bytes(), nil
+	bold, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
+	if err != nil {
+		return fmt.Errorf("export: substitutes header style: %w", err)
+	}
+	headers := []string{"Part number", "Relationship", "Grade", "Confidence %", "Sources"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		if err := f.SetCellValue(subsSheet, cell, h); err != nil {
+			return fmt.Errorf("export: substitutes header %s: %w", h, err)
+		}
+		if err := f.SetCellStyle(subsSheet, cell, cell, bold); err != nil {
+			return fmt.Errorf("export: substitutes header style: %w", err)
+		}
+	}
+	for i, s := range subs {
+		rowN := i + 2
+		rel := s.Relationship
+		if rel == "" {
+			rel = "substitute"
+		}
+		grade := s.Grade
+		if grade == "" {
+			grade = "—"
+		}
+		srcs := s.Sources
+		if len(srcs) == 0 {
+			srcs = []string{"—"}
+		}
+		values := []any{s.PartNumber, rel, grade, s.ConfidencePct, strings.Join(srcs, ", ")}
+		for c, v := range values {
+			cell, _ := excelize.CoordinatesToCellName(c+1, rowN)
+			if err := f.SetCellValue(subsSheet, cell, v); err != nil {
+				return fmt.Errorf("export: substitutes row %d: %w", rowN, err)
+			}
+		}
+	}
+	for col, w := range map[string]float64{"A": 22, "B": 14, "C": 8, "D": 13, "E": 34} {
+		if err := f.SetColWidth(subsSheet, col, col, w); err != nil {
+			return fmt.Errorf("export: substitutes width %s: %w", col, err)
+		}
+	}
+	if err := f.SetPanes(subsSheet, &excelize.Panes{
+		Freeze:      true,
+		YSplit:      1,
+		TopLeftCell: "A2",
+		ActivePane:  "bottomLeft",
+	}); err != nil {
+		return fmt.Errorf("export: substitutes freeze header: %w", err)
+	}
+	return nil
 }

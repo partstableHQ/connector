@@ -203,6 +203,7 @@ body {
   border-bottom: 1px solid var(--border-divider);
 }
 .tds-sub:last-child { border-bottom: none; }
+.tds-sub-head { display: flex; align-items: center; gap: 8px; }
 .tds-sub-pn {
   font-family: var(--font-mono);
   font-size: 14px;
@@ -211,6 +212,42 @@ body {
   text-decoration: none;
 }
 .tds-sub-pn:hover { text-decoration: underline; }
+
+/* Copy-to-clipboard chip next to every part number in the data sheet. */
+.copy-btn {
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-family: var(--font-sans);
+  padding: 1px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copy-btn:hover { color: var(--color-primary); border-color: var(--color-primary); }
+
+/* Quote-builder split: rows on the left, data sheet for the selected row
+   on the right (the production quote-builder layout). */
+.paste-split { display: flex; gap: 14px; align-items: stretch; margin-top: var(--space-2); }
+.paste-grid { flex: 1 1 58%; min-width: 0; height: 560px; }
+.paste-tds {
+  flex: 1 1 42%;
+  min-width: 320px;
+  max-width: 46%;
+  height: 560px;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  background: var(--bg-primary);
+}
+@media (max-width: 900px) {
+  .paste-split { flex-direction: column; }
+  .paste-grid, .paste-tds { max-width: none; height: auto; }
+  .paste-grid { height: 360px; }
+}
+
 
 .tds-rel {
   font-size: 11px;

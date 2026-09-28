@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/partstableHQ/connector/internal/export"
 	"github.com/partstableHQ/connector/internal/lookup"
+	"github.com/partstableHQ/connector/internal/parse"
 )
 
 // ProductionPartsSearchURL is the production parts search API — the full
@@ -161,15 +164,123 @@ func (s *Server) handlePLookup(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusBadRequest, map[string]string{"error": "missing pn parameter"})
 		return
 	}
-	if res := productionResult(r.Context(), pn); res != nil {
-		if subs := tdsSubstitutes(r.Context(), res.Part.PN); len(subs) > 0 {
-			res.Part.Xrefs = subs
-		}
+	if res := productionResultWithSubs(r.Context(), pn); res != nil {
 		respond(w, http.StatusOK, res)
 		return
 	}
 	res, err := s.svc.Lookup(r.Context(), pn)
 	respondResult(w, res, err)
+}
+
+// productionResultWithSubs is productionResult plus the TDS substitute
+// graph — the enrichment every consumer (paste rows, /plookup) carries.
+func productionResultWithSubs(ctx context.Context, pn string) *lookup.Result {
+	res := productionResult(ctx, pn)
+	if res == nil || res.Part == nil {
+		return res
+	}
+	if subs := tdsSubstitutes(ctx, res.Part.PN); len(subs) > 0 {
+		res.Part.Xrefs = subs
+	}
+	return res
+}
+
+// tdsSub is one production substitute with the fields the export renders.
+type tdsSub struct {
+	PartNumber       string   `json:"partNumber"`
+	Description      string   `json:"description"`
+	RelationshipType string   `json:"relationshipType"`
+	MatchGrade       string   `json:"matchGrade"`
+	Confidence       float64  `json:"confidence"`
+	Sources          []string `json:"sources"`
+}
+
+// tdsSubsFull fetches the production TDS substitutes with grade and
+// confidence — the richer shape the Excel export renders.
+func tdsSubsFull(ctx context.Context, pn string) []tdsSub {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		ProductionTDSURL+"/"+url.PathEscape(pn), nil) // #nosec G704 -- fixed URL constant
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
+	resp, err := catalogClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var parsed struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Substitutes []tdsSub `json:"substitutes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil || !parsed.Success {
+		return nil
+	}
+	return parsed.Data.Substitutes
+}
+
+// handleLookupExport renders one looked-up part plus its verified
+// substitutes as an .xlsx — the single-part counterpart of /paste/export,
+// so even a one-part lookup yields the deliverable file with no re-typing.
+func (s *Server) handleLookupExport(w http.ResponseWriter, r *http.Request) {
+	pn := strings.TrimSpace(r.URL.Query().Get("pn"))
+	if pn == "" {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "missing pn parameter"})
+		return
+	}
+	res := productionResult(r.Context(), pn)
+	if res == nil || res.Part == nil {
+		if lr, err := s.svc.Lookup(r.Context(), pn); err == nil {
+			res = &lr
+		}
+	}
+	identity := pn
+	if res != nil && res.Part != nil && res.Part.PN != "" {
+		identity = res.Part.PN
+	}
+	if res == nil {
+		res = &lookup.Result{Query: pn, Normalized: lookup.Normalize(pn), MatchedBy: lookup.MatchNone}
+	}
+	// One TDS fetch feeds both the Parts sheet cross-references and the
+	// Substitutes sheet — a second call to the same endpoint is a flake
+	// window, not a different answer.
+	subs := tdsSubsFull(r.Context(), identity)
+	if res.Part != nil && len(subs) > 0 {
+		xrefs := make([]lookup.Xref, 0, len(subs))
+		for _, sub := range subs {
+			xrefs = append(xrefs, lookup.Xref{ToPN: sub.PartNumber, Kind: "substitute", Source: sub.Sources[0]})
+		}
+		res.Part.Xrefs = xrefs
+	}
+	subRows := make([]export.SubRow, 0, len(subs))
+	for _, sub := range subs {
+		subRows = append(subRows, export.SubRow{
+			PartNumber:    sub.PartNumber,
+			Relationship:  sub.RelationshipType,
+			Grade:         sub.MatchGrade,
+			ConfidencePct: int(math.Round(sub.Confidence * 100)),
+			Sources:       sub.Sources,
+		})
+	}
+	xlsx, err := export.BuildSingle(export.Row{
+		Entry: parse.Entry{PN: identity, Norm: res.Normalized, Qty: 1},
+		Res:   res,
+	}, subRows)
+	if err != nil {
+		respond(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=partstable-%s.xlsx", url.PathEscape(identity)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(xlsx)
 }
 
 // handleTDS proxies the production TDS endpoint: the full technical data

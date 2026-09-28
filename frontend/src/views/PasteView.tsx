@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import { ModuleRegistry, AllCommunityModule, themeQuartz, type ColDef } from 'ag-grid-community';
+import {
+  ModuleRegistry, AllCommunityModule, themeQuartz,
+  type ColDef, type SelectionChangedEvent,
+} from 'ag-grid-community';
 import { AgGridReact } from 'ag-grid-react';
 import { smartParseDetailed } from '../lib/smartParse';
+import TdsSheet, { type TDS } from '../components/TdsSheet';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -19,24 +23,22 @@ const gridTheme = themeQuartz.withParams({
   accentColor: '#0055DD',
 });
 
+// Quote-builder layout: the grid carries identity only; substitutes and the
+// full data sheet live in the right-hand panel for the selected row.
 interface GridRow {
   pn: string;
   qty: number;
   description: string;
   condition: string;
   category: string;
-  substitutes: string;
-  holders: string;
 }
 
 const colDefs: ColDef<GridRow>[] = [
-  { field: 'pn', headerName: 'Part Number', width: 160, cellClass: 'mono-cell' },
+  { field: 'pn', headerName: 'Part Number', width: 150, cellClass: 'mono-cell' },
   { field: 'qty', headerName: 'Qty', width: 60, type: 'rightAligned' },
-  { field: 'description', headerName: 'Description', flex: 1, minWidth: 200 },
-  { field: 'condition', headerName: 'Condition', width: 85 },
-  { field: 'category', headerName: 'Category', width: 130 },
-  { field: 'substitutes', headerName: 'Substitutes', flex: 1, minWidth: 180 },
-  { field: 'holders', headerName: 'Holders', flex: 1, minWidth: 180 },
+  { field: 'description', headerName: 'Description', flex: 1, minWidth: 180 },
+  { field: 'condition', headerName: 'Condition', width: 90 },
+  { field: 'category', headerName: 'Category', width: 140 },
 ];
 
 export default function PasteView() {
@@ -45,12 +47,17 @@ export default function PasteView() {
   const [loading, setLoading] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rowData, setRowData] = useState<GridRow[]>([]);
+  const [selectedPn, setSelectedPn] = useState<string | null>(null);
+  const [tds, setTds] = useState<TDS | null>(null);
+  const [tdsLoading, setTdsLoading] = useState(false);
 
   const parseAndLookup = async () => {
     if (!text.trim()) return;
     setLoading(true);
     setWarnings([]);
     setRowData([]);
+    setSelectedPn(null);
+    setTds(null);
 
     const result = smartParseDetailed(text);
     if (result.lines.length === 0) {
@@ -60,23 +67,32 @@ export default function PasteView() {
     }
 
     // Enrich rows concurrently (bounded) — a 100-line RFQ must not crawl.
+    // One retry per row: the production edge occasionally drops a request,
+    // and a single flake must not blank a row that has a real record.
     const CONCURRENCY = 6;
     const rows: GridRow[] = new Array(result.lines.length);
     let next = 0;
+    const fetchRow = async (pn: string) => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await fetch(`http://127.0.0.1:7878/plookup?pn=${encodeURIComponent(pn)}`);
+        if (r.ok) return r.json();
+        if (attempt === 0) await new Promise((res) => setTimeout(res, 600));
+      }
+      return null;
+    };
     const enrichOne = async (i: number) => {
       const line = result.lines[i];
       try {
-        const r = await fetch(`http://127.0.0.1:7878/plookup?pn=${encodeURIComponent(line.pn)}`);
-        if (!r.ok) {
+        const data = await fetchRow(line.pn);
+        if (!data) {
           rows[i] = {
             pn: line.pn, qty: line.qty,
             description: line.desc ?? '(no record)',
             condition: line.condition,
-            category: '—', substitutes: '—', holders: '—',
+            category: '—',
           };
           return;
         }
-        const data = await r.json();
         const part = data.part;
         rows[i] = {
           pn: line.pn,
@@ -84,14 +100,12 @@ export default function PasteView() {
           description: part?.description ?? line.desc ?? '(no record)',
           condition: line.condition,
           category: part?.category ?? '—',
-          substitutes: part?.xrefs.map((x: { to_pn: string; kind: string }) => `${x.to_pn} ${x.kind}`).join(', ') || '—',
-          holders: part?.holders.map((h: { holder: string; qty: number }) => `${h.holder} (${h.qty})`).join(', ') || '—',
         };
       } catch {
         rows[i] = {
           pn: line.pn, qty: line.qty,
           description: '(lookup failed)', condition: line.condition,
-          category: '—', substitutes: '—', holders: '—',
+          category: '—',
         };
       }
     };
@@ -105,6 +119,21 @@ export default function PasteView() {
     await Promise.all(workers);
     setRowData(rows);
     setLoading(false);
+  };
+
+  // Selecting a row opens its technical data sheet in the right panel —
+  // the quote-builder flow: rows on the left, full TDS on the right.
+  const onSelectionChanged = (e: SelectionChangedEvent<GridRow>) => {
+    const row = e.api.getSelectedRows()[0];
+    if (!row) return;
+    setSelectedPn(row.pn);
+    setTds(null);
+    setTdsLoading(true);
+    fetch(`http://127.0.0.1:7878/tds/${encodeURIComponent(row.pn)}`)
+      .then((r) => r.json())
+      .then((b) => { if (b.success && b.data) setTds(b.data); })
+      .catch(() => {})
+      .finally(() => setTdsLoading(false));
   };
 
   const exportXLSX = async () => {
@@ -132,7 +161,7 @@ export default function PasteView() {
           setText(e.target.value);
           setPartCount(smartParseDetailed(e.target.value).lines.length);
         }}
-        rows={8}
+        rows={6}
         className="paste-input"
         placeholder={'02CL197 x4\n4X70J67435, 2\nSN730SDB512GB'}
       />
@@ -152,14 +181,33 @@ export default function PasteView() {
         </div>
       )}
       {rowData.length > 0 && (
-        <div style={{ height: 400, width: '100%' }}>
-          <AgGridReact
-            columnDefs={colDefs}
-            rowData={rowData}
-            theme={gridTheme}
-            pagination
-            paginationPageSize={50}
-          />
+        <div className="paste-split">
+          <div className="paste-grid">
+            <AgGridReact
+              columnDefs={colDefs}
+              rowData={rowData}
+              theme={gridTheme}
+              getRowId={(p) => String(p.data.pn)}
+              rowSelection={{ mode: 'singleRow' }}
+              onSelectionChanged={onSelectionChanged}
+              onGridReady={(p) => { (window as unknown as Record<string, unknown>).__ptGrid = p.api; }}
+              pagination
+              paginationPageSize={50}
+            />
+          </div>
+          <div className="paste-tds">
+            {tdsLoading && selectedPn && <p className="statrow">Loading data sheet for {selectedPn}…</p>}
+            {tds && <TdsSheet tds={tds} />}
+            {!tds && !tdsLoading && selectedPn && (
+              <div className="tds-card">
+                <h1 className="tds-title" style={{ fontSize: 20 }}>{selectedPn}</h1>
+                <p className="tds-overview">No data sheet available for this part.</p>
+              </div>
+            )}
+            {!selectedPn && (
+              <p className="statrow">Select a row to open its technical data sheet here.</p>
+            )}
+          </div>
         </div>
       )}
     </div>
