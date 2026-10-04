@@ -26,8 +26,10 @@ UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Tasks]
+; Desktop icon ON by default — a broker must see the app on the desktop
+; (2026-10-04: the only copy ended up corrupt/absent on the CEO's machine).
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
-    GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+    GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
 [Files]
 Source: "partstable.exe"; DestDir: "{app}"; Flags: ignoreversion
