@@ -749,6 +749,33 @@ tr:hover td { background: var(--bg-secondary); }
   margin-top: 4px; font-style: italic;
 }
 
+/* ---- RFQ panel (the send-a-RFQ step of the loop) ---- */
+.rfq-panel {
+  border: 1px solid var(--color-primary); border-radius: var(--radius-lg);
+  background: var(--bg-primary); padding: 12px 14px; margin-bottom: var(--space-2);
+}
+.rfq-head { margin-bottom: 8px; font-size: 13px; }
+.rfq-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.rfq-table th {
+  text-align: left; padding: 6px 8px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default); font-weight: 600;
+}
+.rfq-table td { padding: 6px 8px; border-bottom: 1px solid var(--border-divider); }
+.rfq-table input[type="number"], .rfq-table select {
+  padding: 5px 8px; border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--bg-primary); color: var(--text-primary); font-size: 12.5px; width: 90px;
+}
+.rfq-table .mono-cell { font-family: var(--font-mono); font-weight: 600; }
+
+/* ---- Verdict buttons (ratify / challenge) in the data sheet ---- */
+.verdict-row { margin-left: 10px; display: inline-flex; align-items: center; gap: 6px; }
+.verdict-btn {
+  border: 1px solid var(--border-default); background: var(--bg-primary);
+  border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 12px; line-height: 1.4;
+}
+.verdict-btn:hover { border-color: var(--color-primary); }
+.verdict-thanks { font-size: 11px; color: #1A7F37; font-weight: 600; }
+
 .panel-warn {
   background: var(--color-warning-bg); border: 1px solid var(--color-warning-bg);
   border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);

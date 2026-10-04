@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,6 +26,10 @@ const ProductionPartsSearchURL = "https://partstable.com/api/v1/parts/search"
 // ProductionTDSURL is the canonical read model TDS endpoint
 // (Constitution §4.1: GET /api/public/v1/tds/:pn).
 const ProductionTDSURL = "https://partstable.com/api/public/v1/tds"
+
+// ProductionA2AURL is the open A2A endpoint — the protocol every RFQ and
+// ratification leaves through (CEO scope ruling 2026-10-04: docs/SCOPE-A2A.md).
+const ProductionA2AURL = "https://partstable.com/a2a"
 
 var catalogClient = &http.Client{Timeout: 10 * time.Second}
 
@@ -267,6 +273,150 @@ func tdsSubsFull(ctx context.Context, pn string) []tdsSub {
 		return nil
 	}
 	return parsed.Data.Substitutes
+}
+
+// a2aSend wraps a payload in an A2A JSON-RPC 2.0 message/send envelope and
+// posts it to the open A2A endpoint. This is the ONLY channel RFQs and
+// ratifications leave through (docs/SCOPE-A2A.md). The message carries BOTH
+// a text part (the production agent parses text today) and a data part
+// (the structured contract for platform consumers). Returns the raw
+// response body and status so callers can show honest send state.
+func a2aSend(ctx context.Context, dataType, text string, data map[string]any) ([]byte, int, error) {
+	msgID := fmt.Sprintf("ptc-%d-%04d", time.Now().UnixMilli(), rand.Intn(10000))
+	env := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      msgID,
+		"method":  "message/send",
+		"params": map[string]any{
+			"message": map[string]any{
+				"role":      "user",
+				"kind":      "message",
+				"messageId": msgID,
+				"parts": []map[string]any{
+					{"kind": "text", "text": text},
+					{"kind": "data", "data": map[string]any{"type": dataType, "data": data}},
+				},
+			},
+		},
+	}
+	payload, err := json.Marshal(env)
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ProductionA2AURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
+	resp, err := catalogClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return body, resp.StatusCode, nil
+}
+
+// rfqLine is one RFQ line: the part, how many, and in what condition.
+type rfqLine struct {
+	PN        string `json:"pn"`
+	Qty       int    `json:"qty"`
+	Condition string `json:"condition"`
+}
+
+// handleRFQSend sends the user's RFQ over A2A (partstable.rfq.request) —
+// the pressing-the-button flow of the scope ruling: validated parts,
+// quantities, and conditions, out through the protocol.
+func (s *Server) handleRFQSend(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "unreadable body"})
+		return
+	}
+	var req struct {
+		Lines []rfqLine `json:"lines"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || len(req.Lines) == 0 {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "lines must be a non-empty array of {pn, qty, condition}"})
+		return
+	}
+	for _, l := range req.Lines {
+		if strings.TrimSpace(l.PN) == "" || l.Qty < 1 {
+			respond(w, http.StatusBadRequest, map[string]string{"error": "every line needs a part number and quantity >= 1"})
+			return
+		}
+	}
+	data := map[string]any{"lines": req.Lines}
+	if s.authm != nil {
+		if st := s.authm.Status(); st.SignedIn {
+			data["from"] = st.Email
+		}
+	}
+	var text strings.Builder
+	text.WriteString("RFQ:")
+	for _, l := range req.Lines {
+		cond := l.Condition
+		if cond == "" {
+			cond = "REF"
+		}
+		fmt.Fprintf(&text, " %dx %s (%s);", l.Qty, l.PN, cond)
+	}
+	respBody, status, err := a2aSend(r.Context(), "partstable.rfq.request", text.String(), data)
+	if err != nil {
+		respond(w, http.StatusBadGateway, map[string]string{"error": "A2A endpoint unreachable — RFQ not sent"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(respBody)
+}
+
+// handleRatify records the reinforcement signal: every completed loop
+// ratifies the part data ("seen, not challenged — accepted"); a 👎 is the
+// explicit challenge. Fire-and-forget over A2A; the UI never blocks on it.
+func (s *Server) handleRatify(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "unreadable body"})
+		return
+	}
+	var req struct {
+		PNs     []string `json:"pns"`
+		Action  string   `json:"action"`  // viewed | exported | rfq
+		Verdict string   `json:"verdict"` // "" | up | down
+	}
+	if err := json.Unmarshal(body, &req); err != nil || len(req.PNs) == 0 || req.Action == "" {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "pns and action are required"})
+		return
+	}
+	if req.Verdict != "" && req.Verdict != "up" && req.Verdict != "down" {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "verdict must be up or down"})
+		return
+	}
+	data := map[string]any{"pns": req.PNs, "action": req.Action, "verdict": req.Verdict}
+	if s.authm != nil {
+		if st := s.authm.Status(); st.SignedIn {
+			data["from"] = st.Email
+		}
+	}
+	verb := "RATIFY " + req.Action
+	if req.Verdict != "" {
+		verb = "VERDICT " + req.Verdict
+	}
+	text := fmt.Sprintf("%s: %s", verb, strings.Join(req.PNs, ", "))
+	respBody, status, err := a2aSend(r.Context(), "partstable.part.ratify", text, data)
+	if err != nil {
+		// Ratification is best-effort by design; never surface as an error.
+		respond(w, http.StatusOK, map[string]any{"ok": false, "queued": false})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(respBody)
 }
 
 // handleLookupExport renders one looked-up part plus its verified

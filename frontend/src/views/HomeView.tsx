@@ -108,6 +108,23 @@ export default function HomeView() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [exportedFile, setExportedFile] = useState('');
+  const [rfqOpen, setRfqOpen] = useState(false);
+  const [rfqBusy, setRfqBusy] = useState(false);
+  const [rfqError, setRfqError] = useState('');
+  const [doneAction, setDoneAction] = useState<'export' | 'rfq'>('export');
+  const [rfqLines, setRfqLines] = useState<{ pn: string; qty: number; condition: string }[]>([]);
+
+  // Ratification (scope ruling 2026-10-04): every completed loop ratifies
+  // the data — seen, not challenged, accepted. Fire-and-forget; a thumbs
+  // down is the explicit challenge.
+  const ratify = (pns: string[], action: string, verdict = '') => {
+    if (pns.length === 0) return;
+    fetch('http://127.0.0.1:7878/ratify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pns, action, verdict }),
+    }).catch(() => {});
+  };
 
   const startOver = () => {
     setText('');
@@ -192,6 +209,8 @@ export default function HomeView() {
     setRowData(rows);
     setLoading(false);
     setStep(2);
+    // Loop completed to results: every shown part is ratified.
+    ratify(rows.map((r) => r.pn), 'viewed');
   };
 
   // Clicking anywhere on a row opens its technical data sheet in the right
@@ -261,6 +280,7 @@ export default function HomeView() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       downloadBlob(await r.blob(), 'partstable-list.xlsx');
       setExportedFile('partstable-list.xlsx');
+      ratify((selectedPns.length > 0 ? selectedPns : rowData.map((r) => r.pn)), 'exported');
       return true;
     } catch {
       setExportError('Export failed — check your connection and try again.');
@@ -271,7 +291,52 @@ export default function HomeView() {
   };
 
   const exportAndFinish = async () => {
-    if (await exportXLSX()) setStep(3);
+    if (await exportXLSX()) {
+      setDoneAction('export');
+      setStep(3);
+    }
+  };
+
+  // ── RFQ (scope ruling 2026-10-04): validate → quantities + condition per
+  // item → send over A2A. Multi-select comes from the grid checkboxes.
+  const openRfq = () => {
+    const source = selectedPns.length > 0
+      ? rowData.filter((r) => selectedPns.includes(r.pn))
+      : rowData;
+    setRfqLines(source.map((r) => ({
+      pn: r.pn,
+      qty: r.qty > 0 ? r.qty : 1,
+      condition: r.condition || 'REF',
+    })));
+    setRfqError('');
+    setRfqOpen(true);
+  };
+
+  const sendRfq = async () => {
+    if (rfqBusy) return;
+    setRfqBusy(true);
+    setRfqError('');
+    try {
+      const r = await fetch('http://127.0.0.1:7878/rfq/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lines: rfqLines }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${r.status}`);
+      }
+      ratify(rfqLines.map((l) => l.pn), 'rfq');
+      setDoneAction('rfq');
+      setRfqOpen(false);
+      setStep(3);
+    } catch (e) {
+      setRfqError(e instanceof Error && e.message.startsWith('A2A')
+        ? e.message
+        : 'Could not send the RFQ — check your connection and try again.');
+    } finally {
+      setRfqBusy(false);
+    }
   };
 
   return (
@@ -302,10 +367,10 @@ export default function HomeView() {
           </h1>
           <div className="hero-sweep" aria-hidden="true" />
           <p className="hero-tag" style={{ animationDelay: '0.45s' }}>
-            The parts reference, on your computer.
+            The parts reference for the secondary-market IT industry.
           </p>
           <p className="hero-sub" style={{ animationDelay: '0.6s' }}>
-            Built by IT brokers, for the secondary-market IT industry. Free, open source, every fact cited.
+            Free, open source, every fact cited. Built by IT brokers.
           </p>
           <div className="hero-stats" style={{ animationDelay: '0.8s' }}>
             {HERO_STATS.map((s) => (
@@ -386,9 +451,54 @@ export default function HomeView() {
               title={selectedPns.length > 0 ? `Export the ${selectedPns.length} ticked row(s)` : 'Export all rows'}>
               {exporting ? 'Exporting…' : selectedPns.length > 0 ? `Export to Excel (${selectedPns.length})` : 'Export to Excel'}
             </button>
+            <button className="btn-primary" onClick={openRfq} disabled={loading || rowData.length === 0}
+              title={selectedPns.length > 0 ? `Request quotes for the ${selectedPns.length} ticked row(s)` : 'Request quotes for all rows'}>
+              Send RFQ →
+            </button>
             <button className="btn-secondary" onClick={startOver}>Start again</button>
             {exportError && <span className="export-error">{exportError}</span>}
           </div>
+          {rfqOpen && (
+            <div className="rfq-panel">
+              <div className="rfq-head">
+                <b>Request for Quotation</b>
+                <span className="muted">— sent over the A2A protocol, broker to broker. Fill quantities and condition per item.</span>
+              </div>
+              <table className="rfq-table">
+                <thead><tr><th>Part Number</th><th>Qty required</th><th>Condition</th></tr></thead>
+                <tbody>
+                  {rfqLines.map((l, i) => (
+                    <tr key={l.pn}>
+                      <td className="mono-cell">{l.pn}</td>
+                      <td>
+                        <input
+                          type="number" min={1} value={l.qty}
+                          onChange={(e) => setRfqLines(rfqLines.map((x, j) => j === i ? { ...x, qty: Math.max(1, Number(e.target.value) || 1) } : x))}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          value={l.condition}
+                          onChange={(e) => setRfqLines(rfqLines.map((x, j) => j === i ? { ...x, condition: e.target.value } : x))}
+                        >
+                          <option value="REF">Refurbished</option>
+                          <option value="NEW">New</option>
+                          <option value="AS-IS">As-Is</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="actions">
+                <button className="btn-primary" onClick={() => void sendRfq()} disabled={rfqBusy}>
+                  {rfqBusy ? 'Sending…' : `Send RFQ (${rfqLines.length} line${rfqLines.length !== 1 ? 's' : ''})`}
+                </button>
+                <button className="btn-secondary" onClick={() => setRfqOpen(false)}>Cancel</button>
+                {rfqError && <span className="export-error">{rfqError}</span>}
+              </div>
+            </div>
+          )}
           <div className="paste-split">
             <div className="paste-grid">
               <AgGridReact
@@ -412,7 +522,7 @@ export default function HomeView() {
             </div>
             <div className="paste-tds">
               {tdsLoading && activePn && <p className="statrow">Loading data sheet for {activePn}…</p>}
-              {tds && <TdsSheet tds={tds} />}
+              {tds && <TdsSheet tds={tds} onVerdict={(pn, verdict) => ratify([pn], 'verdict', verdict)} />}
               {!tds && !tdsLoading && activePn && (
                 <div className="tds-card">
                   <h1 className="tds-title" style={{ fontSize: 20 }}>{activePn}</h1>
@@ -430,17 +540,21 @@ export default function HomeView() {
       {step === 3 && (
         <div className="step-done">
           <div className="done-mark">✓</div>
-          <h2>List exported</h2>
+          <h2>{doneAction === 'rfq' ? 'RFQ sent' : 'List exported'}</h2>
           <p className="muted">
-            {rowData.length} part{rowData.length !== 1 ? 's' : ''} went to <b>{exportedFile}</b> — check your Downloads.
-            {selectedPns.length > 0 ? ` (${selectedPns.length} ticked row${selectedPns.length !== 1 ? 's' : ''})` : ''}
+            {doneAction === 'rfq'
+              ? <>{rfqLines.length} line{rfqLines.length !== 1 ? 's' : ''} went out over A2A — brokers who hold the parts can quote back.</>
+              : <>{rowData.length} part{rowData.length !== 1 ? 's' : ''} went to <b>{exportedFile}</b> — check your Downloads.
+                  {selectedPns.length > 0 ? ` (${selectedPns.length} ticked row${selectedPns.length !== 1 ? 's' : ''})` : ''}</>}
           </p>
           <div className="actions" style={{ justifyContent: 'center' }}>
             <button className="btn-primary" onClick={startOver}>Start again</button>
             <button className="btn-secondary" onClick={() => setStep(2)}>Back to results</button>
-            <button className="btn-secondary" onClick={() => void exportAndFinish()} disabled={exporting}>
-              {exporting ? 'Exporting…' : 'Export again'}
-            </button>
+            {doneAction === 'export'
+              ? <button className="btn-secondary" onClick={() => void exportAndFinish()} disabled={exporting}>
+                  {exporting ? 'Exporting…' : 'Export again'}
+                </button>
+              : <button className="btn-secondary" onClick={openRfq}>Send another RFQ</button>}
           </div>
           <p className="story-line">
             Built by IT brokers, for IT brokers — the parts reference for the secondary-market IT

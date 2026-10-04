@@ -7,8 +7,8 @@ import type { Theme } from '../App';
 // system's surfaces the CEO named for the waitlist teaser.
 const ENTERPRISE_APPS = [
   {
-    icon: '📄',
-    name: 'BOM Lookup',
+    icon: '📋',
+    name: 'Build Sheets',
     blurb: 'Paste an entire bill of materials — every line identified, matched, and substituted.',
   },
   {
@@ -219,6 +219,11 @@ export default function SettingsView({ health, onHealth, theme, onTheme }: {
         </p>
         <p className="muted">
           The parts reference for the secondary-market IT industry. Free, open source, every fact cited.
+        </p>
+        <p className="muted story-contact">
+          Code: MIT. The bundled parts reference data: CC BY-SA 4.0 — free to use, share-alike, credit
+          PartsTable (<a href="https://github.com/partstableHQ/connector/blob/main/DATA-LICENSE.md" target="_blank" rel="noreferrer">DATA-LICENSE.md</a>).
+          Live partner stock feeds and ERP integrations are separate commercial terms.
         </p>
         <p className="muted story-contact">
           PartsTable Design LLC · <a href="mailto:tony@partstable.com">tony@partstable.com</a>

@@ -83,9 +83,10 @@ const specRow = (label: string, value: React.ReactNode) => (
 // broker guidance, overview, where-it-fits, specifications (identity only —
 // never pricing), verified substitutes with copy buttons, truth-only
 // lifecycle, and the validation footer.
-export default function TdsSheet({ tds }: { tds: TDS }) {
+export default function TdsSheet({ tds, onVerdict }: { tds: TDS; onVerdict?: (pn: string, verdict: 'up' | 'down') => void }) {
   const cat1 = tds.category || tds.partCategory || '';
   const cat2 = tds.category2 || tds.partSubcategory || '';
+  const [voted, setVoted] = useState<'up' | 'down' | null>(null);
   return (
     <div className="tds-sheet">
       {/* Header block */}
@@ -97,7 +98,23 @@ export default function TdsSheet({ tds }: { tds: TDS }) {
           {tds.partNumber} — {titleCase(cat2 || cat1 || tds.description)} Specs
           <CopyBtn value={tds.partNumber} />
         </h1>
-        <div className="tds-verified">✓ Verified by PartsTable</div>
+        <div className="tds-verified">
+          ✓ Verified by PartsTable
+          {onVerdict && (
+            <span className="verdict-row">
+              {voted
+                ? <span className="verdict-thanks">{voted === 'up' ? 'Thanks — ratified ✓' : 'Challenged — a human will look.'}</span>
+                : (
+                  <>
+                    <button type="button" className="verdict-btn" title="Right — ratify this record"
+                      onClick={() => { setVoted('up'); onVerdict(tds.partNumber, 'up'); }}>👍</button>
+                    <button type="button" className="verdict-btn" title="Not right — challenge this record"
+                      onClick={() => { setVoted('down'); onVerdict(tds.partNumber, 'down'); }}>👎</button>
+                  </>
+                )}
+            </span>
+          )}
+        </div>
         <div className="tds-brandline">
           <b>{tds.brand || tds.manufacturer}</b> · {(cat1 || 'PART').toUpperCase()}{cat2 ? ` · ${cat2.toUpperCase()}` : ''}
         </div>

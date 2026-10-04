@@ -6,6 +6,33 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Added (beta.29) — the A2A scope amendment (CEO, 2026-10-04)
+
+- **Send RFQ from the app.** The guided loop now ends two ways: export to
+  Excel, or press **Send RFQ** — a per-line panel (quantities + condition
+  per item, prefilled from the paste) that goes out over the **A2A
+  protocol** (`message/send`, text + structured data part, signed-in
+  identity attached when present). Multi-select from the grid checkboxes
+  carries into the RFQ. Verified live: production's A2A agent completes
+  the task end-to-end.
+- **Ratification layer** (replaces ratings as the primary signal): every
+  completed loop — results shown, Excel exported, RFQ sent — pings
+  `partstable.part.ratify` over A2A. **No news is good news**: seen and
+  unchallenged means accepted. 👍/👎 verdict buttons sit on every data
+  sheet; a 👎 is the explicit challenge that triggers human review.
+  Verified live: ratification tasks complete on production.
+- **Marketing-law copy fixes**: the hero now carries the locked one-liner
+  only ("The parts reference for the secondary-market IT industry." —
+  retired headline removed); the topbar says "reference" (never the
+  banned word); the Enterprise teaser is "Build Sheets" (not the banned
+  acronym); Settings cites the license split (code MIT · reference data
+  CC BY-SA 4.0 · live partner feeds separate).
+- Scope ruling filed: `docs/SCOPE-A2A.md` (+ agent-registry
+  RULING-2026-10-04) — bespoke per-company connectors, A2A-encrypted by
+  default, the reference as the canonical language, company-level
+  install (the security key that keeps customer data local), and
+  Dabergy/Covenco communication moving to mandatory A2A.
+
 ### Added (beta.28)
 
 - **Component diagram in the data sheet.** The production TDS payload's

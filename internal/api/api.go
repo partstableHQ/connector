@@ -104,6 +104,8 @@ func New(svc *lookup.Service, appVersion string, port int, authm *auth.Manager, 
 	mux.HandleFunc("GET /catalog/search", s.handleCatalogSearch)
 	mux.HandleFunc("GET /plookup", s.handlePLookup)
 	mux.HandleFunc("GET /tds/", s.handleTDS)
+	mux.HandleFunc("POST /rfq/send", s.handleRFQSend)
+	mux.HandleFunc("POST /ratify", s.handleRatify)
 	// productionLookup enriches paste rows with live production data AND
 	// its verified substitutes (the same identity the grid shows) — the
 	// Excel export must match what the user sees, not a degraded copy.

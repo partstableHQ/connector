@@ -44,8 +44,8 @@ export default function App() {
         <span className="account">{health?.auth?.signed_in ? health.auth.email : ''}</span>
         <span className="vintage">
           {health?.compendium
-            ? `compendium rev ${health.compendium.vintage.slice(0, 10)} · ${health.compendium.part_count.toLocaleString()} parts`
-            : 'live catalog'}
+            ? `reference rev ${health.compendium.vintage.slice(0, 10)} · ${health.compendium.part_count.toLocaleString()} parts`
+            : 'live reference'}
         </span>
         <button
           className="theme-toggle"
