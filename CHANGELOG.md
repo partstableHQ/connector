@@ -6,6 +6,37 @@ release time; this section is the format template.
 
 ## [Unreleased]
 
+### Added (beta.30) — the follow-up tracks
+
+- **`mkconnector` — the bespoke connector generator** (FM-25, scope ruling
+  §1): build a per-company, ed25519-signed integration bundle from flags —
+  `mkconnector generate --name "Acme Odoo" --system odoo --auth oauth2
+  --host erp.acme.com --fieldmap map.json --out bundle/`. Manifest declares
+  allowed hosts, BYO-keychain credentials, sync schedule, min app version,
+  and the field map; `verify` refuses tampered bundles (tested), `keygen`
+  provisions signing keys. Built and shipped alongside the app.
+- **Company-level installer** (scope ruling §7): `PartstableConnector-
+  *-company-setup.exe` — per-machine install (Program Files, all users),
+  distinct app identity, first-run dialog instructing management to pair
+  ONCE as the company account so every A2A message carries the company
+  identity. The security-key model, packaged.
+- **Human-review service** (scope ruling §3): part numbers the reference
+  can't resolve surface a "submit for human review" action; submissions go
+  over A2A as `partstable.part.review-request` with the submitter identity.
+  Verified live.
+- **A2A send hardened**: one retry on transport errors / 5xx (the
+  production edge intermittently drops single requests) — RFQ, ratify, and
+  review all ride it.
+- **Onboarding plan** (`docs/PLAN-A2A-ONBOARDING.md`): Dabergy-first
+  cutover runbook (baseline → read-only mirror → write lane → management
+  flip with 30-day warm rollback), the company-identity binding design,
+  the security posture, and Covenco as the second tenant. Management
+  sign-off gates every flip.
+- **Platform WO filed** (`WO-2026-10-04-a2a-rfq-ratify-platform.md`,
+  agent-registry): the exact contract for the A2A agent to ACT on
+  `partstable.rfq.request` and `partstable.part.ratify` — create RFQ
+  records, weight ratification counters, open review tasks on thumbs-down.
+
 ### Added (beta.29) — the A2A scope amendment (CEO, 2026-10-04)
 
 - **Send RFQ from the app.** The guided loop now ends two ways: export to

@@ -113,6 +113,28 @@ export default function HomeView() {
   const [rfqError, setRfqError] = useState('');
   const [doneAction, setDoneAction] = useState<'export' | 'rfq'>('export');
   const [rfqLines, setRfqLines] = useState<{ pn: string; qty: number; condition: string }[]>([]);
+  const [reviewState, setReviewState] = useState<'idle' | 'sending' | 'sent'>('idle');
+
+  // Unmatched rows are the human-review service's candidates (scope ruling
+  // §3: users can add part numbers that are looked at by humans as a service).
+  const unmatchedPns = rowData
+    .filter((r) => r.description === '(no record)' || r.description === '(lookup failed)')
+    .map((r) => r.pn);
+
+  const submitForReview = async () => {
+    if (reviewState !== 'idle' || unmatchedPns.length === 0) return;
+    setReviewState('sending');
+    try {
+      const r = await fetch('http://127.0.0.1:7878/review/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pns: unmatchedPns, note: 'Submitted from the Connector paste loop — not in the reference.' }),
+      });
+      setReviewState(r.ok ? 'sent' : 'idle');
+    } catch {
+      setReviewState('idle');
+    }
+  };
 
   // Ratification (scope ruling 2026-10-04): every completed loop ratifies
   // the data — seen, not challenged, accepted. Fire-and-forget; a thumbs
@@ -136,6 +158,7 @@ export default function HomeView() {
     setSelectedPns([]);
     setExportError('');
     setExportedFile('');
+    setReviewState('idle');
     setStep(1);
   };
 
@@ -147,6 +170,7 @@ export default function HomeView() {
     setActivePn(null);
     setTds(null);
     setSelectedPns([]);
+    setReviewState('idle');
 
     const result = smartParseDetailed(text);
     if (result.lines.length === 0) {
@@ -456,6 +480,15 @@ export default function HomeView() {
               Send RFQ →
             </button>
             <button className="btn-secondary" onClick={startOver}>Start again</button>
+            {unmatchedPns.length > 0 && (
+              <button className="btn-secondary" onClick={() => void submitForReview()} disabled={reviewState !== 'idle'}
+                title="These part numbers are not in the reference yet — a human will verify and add them">
+                {reviewState === 'sending' ? 'Submitting…'
+                  : reviewState === 'sent'
+                    ? `✓ ${unmatchedPns.length} part${unmatchedPns.length !== 1 ? 's' : ''} submitted for human review`
+                    : `${unmatchedPns.length} not in reference — submit for human review`}
+              </button>
+            )}
             {exportError && <span className="export-error">{exportError}</span>}
           </div>
           {rfqOpen && (

@@ -279,8 +279,9 @@ func tdsSubsFull(ctx context.Context, pn string) []tdsSub {
 // posts it to the open A2A endpoint. This is the ONLY channel RFQs and
 // ratifications leave through (docs/SCOPE-A2A.md). The message carries BOTH
 // a text part (the production agent parses text today) and a data part
-// (the structured contract for platform consumers). Returns the raw
-// response body and status so callers can show honest send state.
+// (the structured contract for platform consumers). One retry on transport
+// errors and 5xx — the edge intermittently drops single requests. Returns
+// the raw response body and status so callers can show honest send state.
 func a2aSend(ctx context.Context, dataType, text string, data map[string]any) ([]byte, int, error) {
 	msgID := fmt.Sprintf("ptc-%d-%04d", time.Now().UnixMilli(), rand.Intn(10000))
 	env := map[string]any{
@@ -303,22 +304,36 @@ func a2aSend(ctx context.Context, dataType, text string, data map[string]any) ([
 	if err != nil {
 		return nil, 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ProductionA2AURL, bytes.NewReader(payload))
-	if err != nil {
-		return nil, 0, err
+	var lastErr error
+	var lastStatus int
+	var lastBody []byte
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, 0, ctx.Err()
+			case <-time.After(700 * time.Millisecond):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, ProductionA2AURL, bytes.NewReader(payload))
+		if err != nil {
+			return nil, 0, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
+		resp, err := catalogClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+		_ = resp.Body.Close()
+		lastStatus, lastBody, lastErr = resp.StatusCode, body, readErr
+		if resp.StatusCode < 500 {
+			return body, resp.StatusCode, readErr
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PartsTableConnector/1.0")
-	resp, err := catalogClient.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-	if err != nil {
-		return nil, resp.StatusCode, err
-	}
-	return body, resp.StatusCode, nil
+	return lastBody, lastStatus, lastErr
 }
 
 // rfqLine is one RFQ line: the part, how many, and in what condition.
@@ -412,6 +427,50 @@ func (s *Server) handleRatify(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Ratification is best-effort by design; never surface as an error.
 		respond(w, http.StatusOK, map[string]any{"ok": false, "queued": false})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(respBody)
+}
+
+// handleReviewRequest files a human-verification request for part numbers
+// the catalog could not resolve — the "looked at by humans as a service"
+// path of the scope ruling (docs/SCOPE-A2A.md §3). Sent over A2A.
+func (s *Server) handleReviewRequest(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err != nil {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "unreadable body"})
+		return
+	}
+	var req struct {
+		PNs  []string `json:"pns"`
+		Note string   `json:"note"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || len(req.PNs) == 0 {
+		respond(w, http.StatusBadRequest, map[string]string{"error": "pns must be a non-empty array"})
+		return
+	}
+	for i := range req.PNs {
+		req.PNs[i] = strings.TrimSpace(req.PNs[i])
+		if req.PNs[i] == "" {
+			respond(w, http.StatusBadRequest, map[string]string{"error": "empty part number in pns"})
+			return
+		}
+	}
+	data := map[string]any{"pns": req.PNs, "note": req.Note}
+	if s.authm != nil {
+		if st := s.authm.Status(); st.SignedIn {
+			data["from"] = st.Email
+		}
+	}
+	text := fmt.Sprintf("REVIEW REQUEST (human verification): %s", strings.Join(req.PNs, ", "))
+	if req.Note != "" {
+		text += " — " + req.Note
+	}
+	respBody, status, err := a2aSend(r.Context(), "partstable.part.review-request", text, data)
+	if err != nil {
+		respond(w, http.StatusBadGateway, map[string]string{"error": "A2A endpoint unreachable — request not sent"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
