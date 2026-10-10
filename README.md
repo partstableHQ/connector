@@ -48,8 +48,7 @@ $ partstable lookup 95Y4812
 
 ```bash
 # 1 · Install — one binary, ~30 MB
-winget install PartsTable.Connector      # Windows
-# Linux and macOS one-liners publish here with the first release
+# Install commands for Windows, Linux and macOS publish here with the first release
 # (exact shipped commands only — never placeholders)
 
 # 2 · Sign in  (free account, no credit card)
